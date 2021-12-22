@@ -19,7 +19,7 @@ struct ObjcClassData {
     let instanceSize: DataStruct
     let reserved: DataStruct
     let ivarlayout: DataStruct
-    let name: (DataStruct, DataStruct)
+    let name: ClassName
     let baseMethod: Methods
     let baseProtocol: Protocols
     let ivars: InstanceVariables
@@ -38,7 +38,7 @@ struct ObjcClassData {
         print("instanceSize:\n \tAddress:\(instanceSize.address)\t Data:\(instanceSize.data)\t DataString:\(instanceSize.dataString)\t Value:\(instanceSize.value)")
         print("reserved:\n \tAddress:\(reserved.address)\t Data:\(reserved.data)\t DataString:\(reserved.dataString)\t Value:\(reserved.value)")
         print("ivarlayout:\n \tAddress:\(ivarlayout.address)\t Data:\(ivarlayout.data)\t DataString:\(ivarlayout.dataString)\t Value:\(ivarlayout.value)")
-        print("name:\n \tAddress:\(name.0.address)\t Data:\(name.0.data)\t DataString:\(name.0.dataString)\t Value:\(name.0.value)\t Class:\(name.1)")
+        print("name:\n \tAddress:\(name.name.address)\t Data:\(name.name.data)\t DataString:\(name.name.dataString)\t Value:\(name.name.value)\t ClassName:\(name.className)")
         print("baseMethod:\n \tAddress:\(baseMethod.baseMethod)\t ElementSize:\(baseMethod.elementSize)\t ElementCount:\(baseMethod.elementCount)\t Method:\(baseMethod.methods)")
         print("baseProtocol:\n \tAddress:\(baseProtocol.baseProtocol)\t Count:\(baseProtocol.count)\t Protocols:\(baseProtocol.protocols)")
         print("ivars:\n \tAddress:\(ivars.ivars)\t ElementSize:\(ivars.elementSize)\t ElementCount:\(ivars.elementCount)\t InstanceVariables:\(ivars.instanceVariables)")

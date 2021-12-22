@@ -20,9 +20,6 @@ struct Section {
         let binary = MachOData.shared.binary
         
         var objcClassArr = [ObjcClassData]()
-        var classNames = [String: DataStruct]()
-        var methoedNames = [String: DataStruct]()
-        var methoedTypes = [String: DataStruct]()
         
         if type == .x86 {
             print("Not Support x86")
@@ -42,22 +39,7 @@ struct Section {
                     for _ in 0..<segment.nsects {
                         let sect = binary.extract(section_64.self, offset: offset_segment)
                         let segname = String(rawCChar: sect.segname)
-                        if segname.contains("__TEXT") {
-                            let sectname = String(rawCChar: sect.sectname)
-                            switch sectname {
-                            case "__objc_classname__objc_classname":
-                                classNames = DataStruct.textData(binary, offset: sect.offset, length: sect.size)
-                                break
-                            case "__objc_methname":
-                                methoedNames = DataStruct.textData(binary, offset: sect.offset, length: sect.size)
-                                break
-                            case "__objc_methtype":
-                                methoedTypes = DataStruct.textData(binary, offset: sect.offset, length: sect.size)
-                                break
-                            default:
-                                break
-                            }
-                        } else if segname.contains("__DATA") {
+                        if segname.hasPrefix("__DATA") {
                             let sectname = String(rawCChar: sect.sectname)
                             switch sectname {
                             case "__objc_classlist__objc_classlist":
@@ -86,10 +68,8 @@ struct Section {
                                     let instanceSize = DataStruct.data(binary, offset: offsetCD+8, length: 4)
                                     let reserved = DataStruct.data(binary, offset: offsetCD+12, length: 4)
                                     let ivarlayout = DataStruct.data(binary, offset: offsetCD+16, length: 8)
-                                    let name = DataStruct.data(binary, offset: offsetCD+24, length: 8)
+                                    let name = ClassName.className(binary, startOffset: offsetCD+24)
                                     
-                                    let classds = classNames[name.value.replacingOccurrences(of: "00000001", with: "")] ?? DataStruct(address: "", data: Data(), dataString: "", value: "")
-
                                     let baseMethod = Methods.methods(binary, startOffset: offsetCD+32)
                                     let baseProtocol = Protocols.protocols(binary, startOffset: offsetCD+40)
                                     let ivars = InstanceVariables.instances(binary, startOffset: offsetCD+48)
@@ -107,7 +87,7 @@ struct Section {
                                                                   instanceSize: instanceSize,
                                                                   reserved: reserved,
                                                                   ivarlayout: ivarlayout,
-                                                                  name: (name, classds),
+                                                                  name: name,
                                                                   baseMethod: baseMethod,
                                                                   baseProtocol: baseProtocol,
                                                                   ivars: ivars,
@@ -115,7 +95,7 @@ struct Section {
                                                                   baseProperties: baseProperties
                                     )
                                     objcClass.description()
-                                    objcClassArr.append(objcClass)
+//                                    objcClassArr.append(objcClass)
                                 }
                                 break
                             default:
