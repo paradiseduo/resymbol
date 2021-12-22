@@ -20,12 +20,14 @@ struct Section {
         let binary = MachOData.shared.binary
         
         var objcClassArr = [ObjcClassData]()
-        var classNames = [DataStruct]()
-        var methoedNames = [DataStruct]()
-        var methoedTypes = [DataStruct]()
+        var classNames = [String: DataStruct]()
+        var methoedNames = [String: DataStruct]()
+        var methoedTypes = [String: DataStruct]()
         
         if type == .x86 {
-            
+            print("Not Support x86")
+            handle(nil)
+            return
         } else {
             let header = binary.extract(mach_header_64.self)
             var offset_machO = MemoryLayout.size(ofValue: header)
@@ -39,61 +41,46 @@ struct Section {
                     var offset_segment = offset_machO + 0x48
                     for _ in 0..<segment.nsects {
                         let sect = binary.extract(section_64.self, offset: offset_segment)
-                        if String(rawCChar: sect.segname).contains("__TEXT") {
-                            let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(sect.offset), length: Int(sect.size)))!)
-                            if let s = String(data: d, encoding: String.Encoding.utf8) {
-                                var valueStr = ""
-                                var offset = sect.offset
-                                let end = UInt64(offset) + sect.size
-                                var length = 0
-                                for item in s {
-                                    if offset >= end {
-                                        break
-                                    } else {
-                                        if item != "\0" {
-                                            valueStr += String(item)
-                                            length += 1
-                                        } else {
-                                            if valueStr.count > 0 {
-                                                let dataValue = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(offset-UInt32(valueStr.count)), length: length))!)
-                                                let ds = DataStruct(address: Int(offset-UInt32(length)).string16(), data: dataValue, dataString: dataValue.rawValue(), value: valueStr)
-                                                switch String(rawCChar: sect.sectname) {
-                                                case "__objc_classname__objc_classname":
-                                                    classNames.append(ds)
-                                                    break
-                                                case "__objc_methname":
-                                                    methoedNames.append(ds)
-                                                    break
-                                                case "__objc_methtype":
-                                                    methoedTypes.append(ds)
-                                                    break
-                                                default:
-                                                    break
-                                                }
-                                            }
-                                            valueStr = ""
-                                            length = 0
-                                        }
-                                    }
-                                    offset += 1
-                                }
+                        let segname = String(rawCChar: sect.segname)
+                        if segname.contains("__TEXT") {
+                            let sectname = String(rawCChar: sect.sectname)
+                            switch sectname {
+                            case "__objc_classname__objc_classname":
+                                classNames = DataStruct.textData(binary, offset: sect.offset, length: sect.size)
+                                break
+                            case "__objc_methname":
+                                methoedNames = DataStruct.textData(binary, offset: sect.offset, length: sect.size)
+                                break
+                            case "__objc_methtype":
+                                methoedTypes = DataStruct.textData(binary, offset: sect.offset, length: sect.size)
+                                break
+                            default:
+                                break
                             }
-                        } else if String(rawCChar: sect.segname).contains("__DATA") {
-                            switch String(rawCChar: sect.sectname) {
+                        } else if segname.contains("__DATA") {
+                            let sectname = String(rawCChar: sect.sectname)
+                            switch sectname {
                             case "__objc_classlist__objc_classlist":
                                 let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(sect.offset), length: Int(sect.size)))!)
                                 let count = d.count>>3
                                 for i in 0..<count {
                                     let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
-                                    let offsetS = sub.rawValueBig().int16Replace()
+
+                                    var offsetS = sub.rawValueBig().int16Replace()
+                                    if offsetS % 4 != 0 {
+                                        offsetS -= offsetS%4
+                                    }
                                     let isa = DataStruct.data(binary, offset: offsetS, length: 8)
                                     let superClass = DataStruct.data(binary, offset: offsetS+8, length: 8)
                                     let cache = DataStruct.data(binary, offset: offsetS+16, length: 8)
                                     let cacheMask = DataStruct.data(binary, offset: offsetS+24, length: 4)
                                     let cacheOccupied = DataStruct.data(binary, offset: offsetS+28, length: 4)
                                     let classData = DataStruct.data(binary, offset: offsetS+32, length: 8)
-                                    
-                                    let offsetCD = classData.value.int16Replace()
+
+                                    var offsetCD = classData.value.int16Replace()
+                                    if offsetCD % 4 != 0 {
+                                        offsetCD -= offsetCD%4
+                                    }
                                     let flag = DataStruct.data(binary, offset: offsetCD, length: 4)
                                     let instanceStart = DataStruct.data(binary, offset: offsetCD+4, length: 4)
                                     let instanceSize = DataStruct.data(binary, offset: offsetCD+8, length: 4)
@@ -101,19 +88,14 @@ struct Section {
                                     let ivarlayout = DataStruct.data(binary, offset: offsetCD+16, length: 8)
                                     let name = DataStruct.data(binary, offset: offsetCD+24, length: 8)
                                     
-                                    var classds = DataStruct(address: "", data: Data(), dataString: "", value: "")
-                                    for item in classNames {
-                                        if item.address == name.value.replacingOccurrences(of: "00000001", with: "") {
-                                            classds = item
-                                        }
-                                    }
-                                    
+                                    let classds = classNames[name.value.replacingOccurrences(of: "00000001", with: "")] ?? DataStruct(address: "", data: Data(), dataString: "", value: "")
+
                                     let baseMethod = Methods.methods(binary, startOffset: offsetCD+32)
                                     let baseProtocol = Protocols.protocols(binary, startOffset: offsetCD+40)
                                     let ivars = InstanceVariables.instances(binary, startOffset: offsetCD+48)
                                     let weakIvarLayout = DataStruct.data(binary, offset: offsetCD+56, length: 8)
                                     let baseProperties = Properties.properties(binary, startOffset: offsetCD+64)
-                                    
+
                                     let objcClass = ObjcClassData(isa: isa,
                                                                   superClass: superClass,
                                                                   cache: cache,
