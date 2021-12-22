@@ -95,7 +95,7 @@ struct Section {
                                                                   baseProperties: baseProperties
                                     )
                                     objcClass.description()
-//                                    objcClassArr.append(objcClass)
+                                    objcClassArr.append(objcClass)
                                 }
                                 break
                             default:
