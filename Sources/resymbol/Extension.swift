@@ -63,6 +63,20 @@ extension String {
         let length = commandSize - loadCommandStringOffset
         self = String(data: data[stringOffset..<(stringOffset + length)], encoding: .utf8)!.trimmingCharacters(in: .controlCharacters)
     }
+    
+    func int16Replace() -> Int {
+        return Int(self.replacingOccurrences(of: "00000001", with: ""), radix: 16) ?? 0
+    }
+    
+    func int16() -> Int {
+        return Int(self, radix: 16) ?? 0
+    }
+}
+
+extension Int {
+    func string16() -> String {
+        return String(format: "%08x", self)
+    }
 }
 
 extension FileManager {

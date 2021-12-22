@@ -12,15 +12,17 @@ let byteSwappedOrder = NXByteOrder(rawValue: 0)
 
 struct Section {
     
-    static var objcClassArr = [ObjcClassData]()
-    static var classNames = [DataStruct]()
-    static var methoedNames = [DataStruct]()
-    
-    static func readSection(binary: Data, type:BitType, isByteSwapped: Bool, handle: (Bool)->()) {
+    static func readSection(type:BitType, isByteSwapped: Bool, handle: ([ObjcClassData]?)->()) {
         if type == .x64_fat || type == .x86_fat || type == .none {
-            handle(false)
+            handle(nil)
             return
         }
+        let binary = MachOData.shared.binary
+        
+        var objcClassArr = [ObjcClassData]()
+        var classNames = [DataStruct]()
+        var methoedNames = [DataStruct]()
+        var methoedTypes = [DataStruct]()
         
         if type == .x86 {
             
@@ -54,13 +56,16 @@ struct Section {
                                         } else {
                                             if valueStr.count > 0 {
                                                 let dataValue = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(offset-UInt32(valueStr.count)), length: length))!)
-                                                let ds = DataStruct(address: String(format: "%08x", offset-UInt32(length)), data: dataValue, dataString: dataValue.rawValue(), value: valueStr)
+                                                let ds = DataStruct(address: Int(offset-UInt32(length)).string16(), data: dataValue, dataString: dataValue.rawValue(), value: valueStr)
                                                 switch String(rawCChar: sect.sectname) {
                                                 case "__objc_classname__objc_classname":
                                                     classNames.append(ds)
                                                     break
                                                 case "__objc_methname":
                                                     methoedNames.append(ds)
+                                                    break
+                                                case "__objc_methtype":
+                                                    methoedTypes.append(ds)
                                                     break
                                                 default:
                                                     break
@@ -80,7 +85,7 @@ struct Section {
                                 let count = d.count>>3
                                 for i in 0..<count {
                                     let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
-                                    let offsetS = Int(sub.rawValueBig().replacingOccurrences(of: "00000001", with: ""), radix: 16) ?? 0
+                                    let offsetS = sub.rawValueBig().int16Replace()
                                     let isa = DataStruct.data(binary, offset: offsetS, length: 8)
                                     let superClass = DataStruct.data(binary, offset: offsetS+8, length: 8)
                                     let cache = DataStruct.data(binary, offset: offsetS+16, length: 8)
@@ -88,7 +93,7 @@ struct Section {
                                     let cacheOccupied = DataStruct.data(binary, offset: offsetS+28, length: 4)
                                     let classData = DataStruct.data(binary, offset: offsetS+32, length: 8)
                                     
-                                    let offsetCD = Int(classData.value.replacingOccurrences(of: "00000001", with: ""), radix: 16) ?? 0
+                                    let offsetCD = classData.value.int16Replace()
                                     let flag = DataStruct.data(binary, offset: offsetCD, length: 4)
                                     let instanceStart = DataStruct.data(binary, offset: offsetCD+4, length: 4)
                                     let instanceSize = DataStruct.data(binary, offset: offsetCD+8, length: 4)
@@ -103,11 +108,11 @@ struct Section {
                                         }
                                     }
                                     
-                                    let baseMethod = DataStruct.data(binary, offset: offsetCD+32, length: 8)
-                                    let baseProtocol = DataStruct.data(binary, offset: offsetCD+40, length: 8)
-                                    let ivars = DataStruct.data(binary, offset: offsetCD+48, length: 8)
+                                    let baseMethod = Methods.methods(binary, startOffset: offsetCD+32)
+                                    let baseProtocol = Protocols.protocols(binary, startOffset: offsetCD+40)
+                                    let ivars = InstanceVariables.instances(binary, startOffset: offsetCD+48)
                                     let weakIvarLayout = DataStruct.data(binary, offset: offsetCD+56, length: 8)
-                                    let baseProperties = DataStruct.data(binary, offset: offsetCD+64, length: 8)
+                                    let baseProperties = Properties.properties(binary, startOffset: offsetCD+64)
                                     
                                     let objcClass = ObjcClassData(isa: isa,
                                                                   superClass: superClass,
@@ -115,7 +120,7 @@ struct Section {
                                                                   cacheMask: cacheMask,
                                                                   cacheOccupied: cacheOccupied,
                                                                   classData: classData,
-                                                                  flags: (flag, RO.flags(Int(flag.value, radix: 16) ?? 0)),
+                                                                  flags: (flag, RO.flags(flag.value.int16())),
                                                                   instanceStart: instanceStart,
                                                                   instanceSize: instanceSize,
                                                                   reserved: reserved,
@@ -127,6 +132,7 @@ struct Section {
                                                                   weakIvarLayout: weakIvarLayout,
                                                                   baseProperties: baseProperties
                                     )
+                                    objcClass.description()
                                     objcClassArr.append(objcClass)
                                 }
                                 break
@@ -141,9 +147,6 @@ struct Section {
                 offset_machO += Int(loadCommand.cmdsize)
             }
         }
-        for item in objcClassArr {
-            item.description()
-        }
-        handle(true)
+        handle(objcClassArr)
     }
 }

@@ -11,6 +11,11 @@ import MachO
 
 let version = "1.0.0"
 
+class MachOData {
+    static let shared = MachOData()
+    var binary = Data()
+}
+
 struct Resymbol: ParsableCommand {
     static let configuration = CommandConfiguration(abstract: "resymbol v\(version)", discussion: "Restore symbol", version: version)
     
@@ -27,9 +32,10 @@ struct Resymbol: ParsableCommand {
         } else {
             FileManager.open(machoPath: filePath, backup: false) { data in
                 if let binary = data {
-                    let fh = binary.extract(fat_header.self)
+                    MachOData.shared.binary = binary
+                    let fh = MachOData.shared.binary.extract(fat_header.self)
                     BitType.checkType(machoPath: filePath, header: fh) { type, isByteSwapped in
-                        Section.readSection(binary: binary, type: type, isByteSwapped: isByteSwapped) { result in
+                        Section.readSection(type: type, isByteSwapped: isByteSwapped) { result in
                             
                         }
                     }
