@@ -12,18 +12,16 @@ let byteSwappedOrder = NXByteOrder(rawValue: 0)
 
 struct Section {
     
-    static func readSection(type:BitType, isByteSwapped: Bool, handle: ([ObjcClassData]?)->()) {
+    static func readSection(type:BitType, isByteSwapped: Bool, handle: (Bool)->()) {
         if type == .x64_fat || type == .x86_fat || type == .none {
-            handle(nil)
+            handle(false)
             return
         }
         let binary = MachOData.shared.binary
-        
-        var objcClassArr = [ObjcClassData]()
-        
+                
         if type == .x86 {
             print("Not Support x86")
-            handle(nil)
+            handle(false)
             return
         } else {
             let header = binary.extract(mach_header_64.self)
@@ -76,26 +74,24 @@ struct Section {
                                     let weakIvarLayout = DataStruct.data(binary, offset: offsetCD+56, length: 8)
                                     let baseProperties = Properties.properties(binary, startOffset: offsetCD+64)
 
-                                    let objcClass = ObjcClassData(isa: isa,
-                                                                  superClass: superClass,
-                                                                  cache: cache,
-                                                                  cacheMask: cacheMask,
-                                                                  cacheOccupied: cacheOccupied,
-                                                                  classData: classData,
-                                                                  flags: (flag, RO.flags(flag.value.int16())),
-                                                                  instanceStart: instanceStart,
-                                                                  instanceSize: instanceSize,
-                                                                  reserved: reserved,
-                                                                  ivarlayout: ivarlayout,
-                                                                  name: name,
-                                                                  baseMethod: baseMethod,
-                                                                  baseProtocol: baseProtocol,
-                                                                  ivars: ivars,
-                                                                  weakIvarLayout: weakIvarLayout,
-                                                                  baseProperties: baseProperties
-                                    )
-                                    objcClass.description()
-                                    objcClassArr.append(objcClass)
+                                    ObjcClassData(isa: isa,
+                                                  superClass: superClass,
+                                                  cache: cache,
+                                                  cacheMask: cacheMask,
+                                                  cacheOccupied: cacheOccupied,
+                                                  classData: classData,
+                                                  flags: (flag, RO.flags(flag.value.int16())),
+                                                  instanceStart: instanceStart,
+                                                  instanceSize: instanceSize,
+                                                  reserved: reserved,
+                                                  ivarlayout: ivarlayout,
+                                                  name: name,
+                                                  baseMethod: baseMethod,
+                                                  baseProtocol: baseProtocol,
+                                                  ivars: ivars,
+                                                  weakIvarLayout: weakIvarLayout,
+                                                  baseProperties: baseProperties
+                                    ).write()
                                 }
                                 break
                             default:
@@ -108,6 +104,6 @@ struct Section {
                 offset_machO += Int(loadCommand.cmdsize)
             }
         }
-        handle(objcClassArr)
+        handle(true)
     }
 }
