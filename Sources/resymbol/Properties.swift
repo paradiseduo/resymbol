@@ -7,17 +7,39 @@
 
 import Foundation
 
-struct Property {
+struct PropertyName {
     let name: DataStruct
+    let propertyName: DataStruct
+    
+    static func propertyName(_ binary: Data, offset: Int) -> PropertyName {
+        let name = DataStruct.data(binary, offset: offset, length: 8)
+        let propertyName = DataStruct.textData(binary, offset: name.value.int16Replace(), length: 128)
+        return PropertyName(name: name, propertyName: propertyName)
+    }
+}
+
+struct PropertyAttributes {
     let attributes: DataStruct
+    let propertyAttributes: DataStruct
+    
+    static func propertyName(_ binary: Data, offset: Int) -> PropertyAttributes {
+        let attributes = DataStruct.data(binary, offset: offset, length: 8)
+        let propertyAttributes = DataStruct.textData(binary, offset: attributes.value.int16Replace(), length: 128)
+        return PropertyAttributes(attributes: attributes, propertyAttributes: propertyAttributes)
+    }
+}
+
+struct Property {
+    let name: PropertyName
+    let attributes: PropertyAttributes
     
     static func properties(_ binary: Data, startOffset: Int, count: Int) -> [Property] {
         var result = [Property]()
         var offSet = startOffset
         for _ in 0..<count {
-            let name = DataStruct.data(binary, offset: offSet, length: 8)
+            let name = PropertyName.propertyName(binary, offset: offSet)
             offSet += 8
-            let attributes = DataStruct.data(binary, offset: offSet, length: 8)
+            let attributes = PropertyAttributes.propertyName(binary, offset: offSet)
             offSet += 8
             result.append(Property(name: name, attributes: attributes))
         }

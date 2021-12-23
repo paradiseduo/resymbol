@@ -102,7 +102,6 @@ struct Section {
                                 break
                             }
                         }
-                        
                         offset_segment += 0x50
                     }
                 }
