@@ -49,9 +49,9 @@ struct ObjcClassData {
     
     func write() {
         if let s = swift_demangle(name.className.value) {
-            print(s)
+            print(isa.address, s)
         } else {
-            print(name.className.value)
+            print(isa.address, name.className.value)
         }
         print("--------------------------")
         if let properties = baseProperties.properties {
@@ -62,7 +62,7 @@ struct ObjcClassData {
         print("=========================")
         if let methods = baseMethod.methods {
             for item in methods {
-                print("0x\(item.implementation.address) \(item.name.methodName.value)")
+                print("0x\(item.implementation.value) \(item.name.methodName.value)")
             }
         }
         print("\n")
