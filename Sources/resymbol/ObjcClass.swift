@@ -7,14 +7,63 @@
 
 import Foundation
 
-struct ObjcClassData {
+struct ObjcClass {
     let isa: DataStruct
     let superClass: DataStruct
     let cache: DataStruct
     let cacheMask: DataStruct
     let cacheOccupied: DataStruct
     let classData: DataStruct
-    let flags: (DataStruct, [RO])
+    let reserved1: DataStruct
+    let reserved2: DataStruct
+    let reserved3: DataStruct
+    let classRO: ObjcClassRO
+    
+    static func OC(_ binary: Data, offset: Int) -> ObjcClass {
+        let isa = DataStruct.data(binary, offset: offset, length: 8)
+        let superClass = DataStruct.data(binary, offset: offset+8, length: 8)
+        let cache = DataStruct.data(binary, offset: offset+16, length: 8)
+        let cacheMask = DataStruct.data(binary, offset: offset+24, length: 4)
+        let cacheOccupied = DataStruct.data(binary, offset: offset+28, length: 4)
+        let classData = DataStruct.data(binary, offset: offset+32, length: 8)
+        let reserved1 = DataStruct.data(binary, offset: offset+40, length: 8)
+        let reserved2 = DataStruct.data(binary, offset: offset+48, length: 8)
+        let reserved3 = DataStruct.data(binary, offset: offset+56, length: 8)
+        
+        var offsetCD = classData.value.int16Replace()
+        if offsetCD % 4 != 0 {
+            offsetCD -= offsetCD%4
+        }
+        
+        let classRO = ObjcClassRO.OCRO(binary, offset: offsetCD)
+        
+        return ObjcClass.init(isa: isa, superClass: superClass, cache: cache, cacheMask: cacheMask, cacheOccupied: cacheOccupied, classData: classData, reserved1: reserved1, reserved2: reserved2, reserved3: reserved3, classRO: classRO)
+    }
+    
+    func write() {
+        if let s = swift_demangle(classRO.name.className.value) {
+            print(isa.address, s)
+        } else {
+            print(isa.address, classRO.name.className.value)
+        }
+        print("--------------------------")
+        if let properties = classRO.baseProperties.properties {
+            for item in properties {
+                print("0x\(item.name.name.address) \(item.name.propertyName.value)")
+            }
+        }
+        print("=========================")
+        if let methods = classRO.baseMethod.methods {
+            for item in methods {
+                print("0x\(item.implementation.value) \(item.name.methodName.value)")
+            }
+        }
+        print("\n")
+    }
+}
+
+struct ObjcClassRO {
+    let flags: Flags
     let instanceStart: DataStruct
     let instanceSize: DataStruct
     let reserved: DataStruct
@@ -26,45 +75,45 @@ struct ObjcClassData {
     let weakIvarLayout: DataStruct
     let baseProperties: Properties
     
-    func description() {
-//        print("isa:\n\t Address:\(isa.address)\t Data:\(isa.data)\t DataString:\(isa.dataString)\t Value:\(isa.value)")
-//        print("superClass:\n\t Address:\(superClass.address)\t Data:\(superClass.data)\t DataString:\(superClass.dataString)\t Value:\(superClass.value)")
-//        print("cache:\n\t Address:\(cache.address)\t Data:\(cache.data)\t DataString:\(cache.dataString)\t Value:\(cache.value)")
-//        print("cacheMask:\n \tAddress:\(cacheMask.address)\t Data:\(cacheMask.data)\t DataString:\(cacheMask.dataString)\t Value:\(cacheMask.value)")
-//        print("cacheOccupied:\n \tAddress:\(cacheOccupied.address)\t Data:\(cacheOccupied.data)\t DataString:\(cacheOccupied.dataString)\t Value:\(cacheOccupied.value)")
-//        print("classData:\n \tAddress:\(classData.address)\t Data:\(classData.data)\t DataString:\(classData.dataString)\t Value:\(classData.value)")
-//        print("flags:\n \tAddress:\(flags.0.address)\t Data:\(flags.0.data)\t DataString:\(flags.0.dataString)\t Value:\(flags.0.value)\t RO:\(flags.1)")
-//        print("instanceStart:\n \tAddress:\(instanceStart.address)\t Data:\(instanceStart.data)\t DataString:\(instanceStart.dataString)\t Value:\(instanceStart.value)")
-//        print("instanceSize:\n \tAddress:\(instanceSize.address)\t Data:\(instanceSize.data)\t DataString:\(instanceSize.dataString)\t Value:\(instanceSize.value)")
-//        print("reserved:\n \tAddress:\(reserved.address)\t Data:\(reserved.data)\t DataString:\(reserved.dataString)\t Value:\(reserved.value)")
-//        print("ivarlayout:\n \tAddress:\(ivarlayout.address)\t Data:\(ivarlayout.data)\t DataString:\(ivarlayout.dataString)\t Value:\(ivarlayout.value)")
-//        print("name:\n \tAddress:\(name.name.address)\t Data:\(name.name.data)\t DataString:\(name.name.dataString)\t Value:\(name.name.value)\t ClassName:\(name.className)")
-//        print("baseMethod:\n \tAddress:\(baseMethod.baseMethod)\t ElementSize:\(baseMethod.elementSize)\t ElementCount:\(baseMethod.elementCount)\t Method:\(baseMethod.methods)")
-//        print("baseProtocol:\n \tAddress:\(baseProtocol.baseProtocol)\t Count:\(baseProtocol.count)\t Protocols:\(baseProtocol.protocols)")
-//        print("ivars:\n \tAddress:\(ivars.ivars)\t ElementSize:\(ivars.elementSize)\t ElementCount:\(ivars.elementCount)\t InstanceVariables:\(ivars.instanceVariables)")
-//        print("weakIvarLayout:\n \tAddress:\(weakIvarLayout.address)\t Data:\(weakIvarLayout.data)\t DataString:\(weakIvarLayout.dataString)\t Value:\(weakIvarLayout.value)")
-//        print("baseProperties:\n \tAddress:\(baseProperties.baseProperties)\t ElementSize:\(baseProperties.elementSize)\t ElementCount:\(baseProperties.elementCount)\t InstanceVariables:\(baseProperties.properties)")
-//        print("\n")
+    static func OCRO(_ binary: Data, offset: Int) -> ObjcClassRO {
+        let flags = Flags.flags(binary, startOffset: offset)
+        let instanceStart = DataStruct.data(binary, offset: offset+4, length: 4)
+        let instanceSize = DataStruct.data(binary, offset: offset+8, length: 4)
+        let reserved = DataStruct.data(binary, offset: offset+12, length: 4)
+        let ivarlayout = DataStruct.data(binary, offset: offset+16, length: 8)
+        let name = ClassName.className(binary, startOffset: offset+24)
+
+        let baseMethod = Methods.methods(binary, startOffset: offset+32)
+        let baseProtocol = Protocols.protocols(binary, startOffset: offset+40)
+        let ivars = InstanceVariables.instances(binary, startOffset: offset+48)
+        let weakIvarLayout = DataStruct.data(binary, offset: offset+56, length: 8)
+        let baseProperties = Properties.properties(binary, startOffset: offset+64)
+        
+        return ObjcClassRO.init(flags: flags, instanceStart: instanceStart, instanceSize: instanceSize, reserved: reserved, ivarlayout: ivarlayout, name: name, baseMethod: baseMethod, baseProtocol: baseProtocol, ivars: ivars, weakIvarLayout: weakIvarLayout, baseProperties: baseProperties)
     }
-    
-    func write() {
-        if let s = swift_demangle(name.className.value) {
-            print(isa.address, s)
-        } else {
-            print(isa.address, name.className.value)
-        }
-        print("--------------------------")
-        if let properties = baseProperties.properties {
-            for item in properties {
-                print("0x\(item.name.name.address) \(item.name.propertyName.value)")
-            }
-        }
-        print("=========================")
-        if let methods = baseMethod.methods {
-            for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value)")
-            }
-        }
-        print("\n")
-    }
+}
+
+struct ObjcProtocol {
+    let isa: DataStruct
+    let name: ClassName
+    let protocols: Protocols
+    let instanceMethods: Methods
+    let classMethods: Methods
+    let optionalInstanceMethods: Methods
+    let optionalClassMethods: Methods
+    let instanceProperties: Properties
+    let size: DataStruct
+    let flag: DataStruct
+    let extendedMethodTypes: MethodTypes
+}
+
+struct ObjcCategory {
+    let name: ClassName
+    let classs: DataStruct
+    let instanceMethods: Methods
+    let classMethods: Methods
+    let protocols: Protocols
+    let instanceProperties: Properties
+    let v7: DataStruct
+    let v8: DataStruct
 }

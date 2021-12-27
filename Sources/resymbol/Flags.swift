@@ -25,7 +25,7 @@ struct RO {
     static let _FUTURE = RO(rawValue: 1 << 30)
     static let _REALIZED = RO(rawValue: 1 << 31)
     
-    static func flags(_ data: Int) -> [RO] {
+    static func ro(_ data: Int) -> [RO] {
         var ro = [RO]()
         let er = String(data, radix: 2)
         for (i, item) in er.reversed().enumerated() {
@@ -65,5 +65,16 @@ struct RO {
             }
         }
         return ro
+    }
+}
+
+struct Flags {
+    let flags: DataStruct
+    let ro: [RO]
+    
+    static func flags(_ binary: Data, startOffset: Int) -> Flags {
+        let flags = DataStruct.data(binary, offset: startOffset, length: 4)
+        let ro = RO.ro(flags.value.int16())
+        return Flags(flags: flags, ro: ro)
     }
 }

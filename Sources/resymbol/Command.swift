@@ -75,53 +75,19 @@ struct Section {
         let count = d.count>>3
         for i in 0..<count {
             let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
-
+            
             var offsetS = sub.rawValueBig().int16Replace()
             if offsetS % 4 != 0 {
                 offsetS -= offsetS%4
             }
-            let isa = DataStruct.data(binary, offset: offsetS, length: 8)
-            let superClass = DataStruct.data(binary, offset: offsetS+8, length: 8)
-            let cache = DataStruct.data(binary, offset: offsetS+16, length: 8)
-            let cacheMask = DataStruct.data(binary, offset: offsetS+24, length: 4)
-            let cacheOccupied = DataStruct.data(binary, offset: offsetS+28, length: 4)
-            let classData = DataStruct.data(binary, offset: offsetS+32, length: 8)
-
-            var offsetCD = classData.value.int16Replace()
-            if offsetCD % 4 != 0 {
-                offsetCD -= offsetCD%4
-            }
-            let flag = DataStruct.data(binary, offset: offsetCD, length: 4)
-            let instanceStart = DataStruct.data(binary, offset: offsetCD+4, length: 4)
-            let instanceSize = DataStruct.data(binary, offset: offsetCD+8, length: 4)
-            let reserved = DataStruct.data(binary, offset: offsetCD+12, length: 4)
-            let ivarlayout = DataStruct.data(binary, offset: offsetCD+16, length: 8)
-            let name = ClassName.className(binary, startOffset: offsetCD+24)
+            ObjcClass.OC(binary, offset: offsetS).write()
             
-            let baseMethod = Methods.methods(binary, startOffset: offsetCD+32)
-            let baseProtocol = Protocols.protocols(binary, startOffset: offsetCD+40)
-            let ivars = InstanceVariables.instances(binary, startOffset: offsetCD+48)
-            let weakIvarLayout = DataStruct.data(binary, offset: offsetCD+56, length: 8)
-            let baseProperties = Properties.properties(binary, startOffset: offsetCD+64)
+            let isa = DataStruct.data(binary, offset: offsetS, length: 8)
+            var metaClassOffset = isa.value.int16Replace()
+            if metaClassOffset % 4 != 0 {
+                metaClassOffset -= metaClassOffset%4
+            }
 
-            ObjcClassData(isa: isa,
-                          superClass: superClass,
-                          cache: cache,
-                          cacheMask: cacheMask,
-                          cacheOccupied: cacheOccupied,
-                          classData: classData,
-                          flags: (flag, RO.flags(flag.value.int16())),
-                          instanceStart: instanceStart,
-                          instanceSize: instanceSize,
-                          reserved: reserved,
-                          ivarlayout: ivarlayout,
-                          name: name,
-                          baseMethod: baseMethod,
-                          baseProtocol: baseProtocol,
-                          ivars: ivars,
-                          weakIvarLayout: weakIvarLayout,
-                          baseProperties: baseProperties
-            ).write()
         }
     }
     
@@ -135,9 +101,19 @@ struct Section {
             if offsetS % 4 != 0 {
                 offsetS -= offsetS%4
             }
-            let name = DataStruct.data(binary, offset: offsetS, length: 8)
+            let name = ClassName.className(binary, startOffset: offsetS)//DataStruct.data(binary, offset: offsetS, length: 8)
             let _class = DataStruct.data(binary, offset: offsetS+8, length: 8)
-            let methodList = DataStruct.data(binary, offset: offsetS+8, length: 8)
+            let instanceMethods = Methods.methods(binary, startOffset: offsetS+16)
+            let classMethods = Methods.methods(binary, startOffset: offsetS+24)
+            let protocols = Protocols.protocols(binary, startOffset: offsetS+32)
+            let instanceProperties = Properties.properties(binary, startOffset: offsetS+40)
+            
+            ObjcCatData(name: name,
+                        _class: _class,
+                        instanceMethods: instanceMethods,
+                        classMethods: classMethods,
+                        protocols: protocols,
+                        instanceProperties: instanceProperties).write()
         }
     }
 }
