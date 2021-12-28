@@ -39,10 +39,23 @@ struct Section {
                         let segname = String(rawCChar: sect.segname)
                         if segname.hasPrefix("__DATA") {
                             let sectname = String(rawCChar: sect.sectname)
-                            if sectname == "__objc_classlist__objc_classlist" {
-                                handle__objc_classlist(binary, section: sect)
-                            } else if sectname == "__objc_catlist" {
-                                handle__objc_catlist(binary, section: sect)
+                            let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(sect.offset), length: Int(sect.size)))!)
+                            let count = d.count>>3
+                            for i in 0..<count {
+                                let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
+                                
+                                var offsetS = sub.rawValueBig().int16Replace()
+                                if offsetS % 4 != 0 {
+                                    offsetS -= offsetS%4
+                                }
+                                
+                                if sectname == "__objc_classlist__objc_classlist" {
+                                    handle__objc_classlist(binary, offset: offsetS)
+                                } else if sectname == "__objc_catlist" {
+                                    handle__objc_catlist(binary, offset: offsetS)
+                                } else if sectname == "__objc_protolist__objc_protolist" {
+                                    handle__objc_protolist(binary, offset: offsetS)
+                                }
                             }
                         }
                         offset_segment += 0x50
@@ -70,50 +83,21 @@ struct Section {
         handle(true)
     }
     
-    private static func handle__objc_classlist(_ binary: Data, section: section_64) {
-        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
-        let count = d.count>>3
-        for i in 0..<count {
-            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
-            
-            var offsetS = sub.rawValueBig().int16Replace()
-            if offsetS % 4 != 0 {
-                offsetS -= offsetS%4
-            }
-            ObjcClass.OC(binary, offset: offsetS).write()
-            
-            let isa = DataStruct.data(binary, offset: offsetS, length: 8)
-            var metaClassOffset = isa.value.int16Replace()
-            if metaClassOffset % 4 != 0 {
-                metaClassOffset -= metaClassOffset%4
-            }
-
+    private static func handle__objc_classlist(_ binary: Data, offset: Int) {
+        var oc = ObjcClass.OC(binary, offset: offset)
+        var metaClassOffset = oc.isa.value.int16Replace()
+        if metaClassOffset % 4 != 0 {
+            metaClassOffset -= metaClassOffset%4
         }
+        oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
+        oc.write()
     }
     
-    private static func handle__objc_catlist(_ binary: Data, section: section_64) {
-        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
-        let count = d.count>>3
-        for i in 0..<count {
-            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
-            
-            var offsetS = sub.rawValueBig().int16Replace()
-            if offsetS % 4 != 0 {
-                offsetS -= offsetS%4
-            }
-            let name = ClassName.className(binary, startOffset: offsetS)//DataStruct.data(binary, offset: offsetS, length: 8)
-            let _class = DataStruct.data(binary, offset: offsetS+8, length: 8)
-            let instanceMethods = Methods.methods(binary, startOffset: offsetS+16)
-            let classMethods = Methods.methods(binary, startOffset: offsetS+24)
-            let protocols = Protocols.protocols(binary, startOffset: offsetS+32)
-            let instanceProperties = Properties.properties(binary, startOffset: offsetS+40)
-            
-            ObjcCatData(name: name,
-                        _class: _class,
-                        instanceMethods: instanceMethods,
-                        classMethods: classMethods,
-                        protocols: protocols,
-                        instanceProperties: instanceProperties).write()
-        }
+    private static func handle__objc_catlist(_ binary: Data, offset: Int) {
+        ObjcCategory.OCCG(binary, offset: offset).write()
+    }
+    
+    private static func handle__objc_protolist(_ binary: Data, offset: Int) {
+        ObjcProtocol.OCPT(binary, offset: offset).write()
     }
 }

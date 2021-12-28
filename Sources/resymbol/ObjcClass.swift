@@ -18,6 +18,7 @@ struct ObjcClass {
     let reserved2: DataStruct
     let reserved3: DataStruct
     let classRO: ObjcClassRO
+    var classMethods: Methods?
     
     static func OC(_ binary: Data, offset: Int) -> ObjcClass {
         let isa = DataStruct.data(binary, offset: offset, length: 8)
@@ -37,7 +38,7 @@ struct ObjcClass {
         
         let classRO = ObjcClassRO.OCRO(binary, offset: offsetCD)
         
-        return ObjcClass.init(isa: isa, superClass: superClass, cache: cache, cacheMask: cacheMask, cacheOccupied: cacheOccupied, classData: classData, reserved1: reserved1, reserved2: reserved2, reserved3: reserved3, classRO: classRO)
+        return ObjcClass(isa: isa, superClass: superClass, cache: cache, cacheMask: cacheMask, cacheOccupied: cacheOccupied, classData: classData, reserved1: reserved1, reserved2: reserved2, reserved3: reserved3, classRO: classRO, classMethods: nil)
     }
     
     func write() {
@@ -46,13 +47,21 @@ struct ObjcClass {
         } else {
             print(isa.address, classRO.name.className.value)
         }
-        print("--------------------------")
+        print("----------Properties----------")
         if let properties = classRO.baseProperties.properties {
+            
             for item in properties {
                 print("0x\(item.name.name.address) \(item.name.propertyName.value)")
             }
         }
-        print("=========================")
+        print("==========Class Method==========")
+        if let methods = classMethods?.methods {
+            
+            for item in methods {
+                print("0x\(item.implementation.value) \(item.name.methodName.value)")
+            }
+        }
+        print("==========Instance Method==========")
         if let methods = classRO.baseMethod.methods {
             for item in methods {
                 print("0x\(item.implementation.value) \(item.name.methodName.value)")
@@ -89,31 +98,8 @@ struct ObjcClassRO {
         let weakIvarLayout = DataStruct.data(binary, offset: offset+56, length: 8)
         let baseProperties = Properties.properties(binary, startOffset: offset+64)
         
-        return ObjcClassRO.init(flags: flags, instanceStart: instanceStart, instanceSize: instanceSize, reserved: reserved, ivarlayout: ivarlayout, name: name, baseMethod: baseMethod, baseProtocol: baseProtocol, ivars: ivars, weakIvarLayout: weakIvarLayout, baseProperties: baseProperties)
+        return ObjcClassRO(flags: flags, instanceStart: instanceStart, instanceSize: instanceSize, reserved: reserved, ivarlayout: ivarlayout, name: name, baseMethod: baseMethod, baseProtocol: baseProtocol, ivars: ivars, weakIvarLayout: weakIvarLayout, baseProperties: baseProperties)
     }
 }
 
-struct ObjcProtocol {
-    let isa: DataStruct
-    let name: ClassName
-    let protocols: Protocols
-    let instanceMethods: Methods
-    let classMethods: Methods
-    let optionalInstanceMethods: Methods
-    let optionalClassMethods: Methods
-    let instanceProperties: Properties
-    let size: DataStruct
-    let flag: DataStruct
-    let extendedMethodTypes: MethodTypes
-}
 
-struct ObjcCategory {
-    let name: ClassName
-    let classs: DataStruct
-    let instanceMethods: Methods
-    let classMethods: Methods
-    let protocols: Protocols
-    let instanceProperties: Properties
-    let v7: DataStruct
-    let v8: DataStruct
-}
