@@ -32,6 +32,32 @@ extension Data {
         }.joined()
         return arr.reversed().joined()
     }
+    
+    func ulieb128(index: Int, end: Int) -> (Int, UInt64) {
+        var result: UInt64 = 0
+        var bit = 0
+        var read_next = true
+        var i = index
+        
+        var p = self[i]
+        repeat {
+            if p == self[end] {
+                result = UInt64(p)
+                break
+            }
+            let slice = UInt64(p & 0x7f)
+            if bit >= 64 {
+                assert(false, "uleb128 too big for uint64")
+            } else {
+                result |= (slice << bit)
+                bit += 7
+            }
+            read_next = (p & 0x80) != 0  // = 128
+            i += 1
+            p = self[i]
+        } while (read_next)
+        return (i, result)
+    }
 }
 
 extension String {
@@ -70,6 +96,12 @@ extension String {
     
     func int16() -> Int {
         return Int(self, radix: 16) ?? 0
+    }
+    
+    func int16RVA() -> Int {
+        let rva = (Int("100000000", radix: 16) ?? 0)
+        let raw = (Int(self, radix: 16) ?? 0)
+        return raw + rva
     }
 }
 

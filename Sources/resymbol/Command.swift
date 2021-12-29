@@ -26,6 +26,7 @@ struct Section {
         } else {
             let header = binary.extract(mach_header_64.self)
             var offset_machO = MemoryLayout.size(ofValue: header)
+            var vmAddress = [UInt64]()
             for _ in 0..<header.ncmds {
                 let loadCommand = binary.extract(load_command.self, offset: offset_machO)
                 if loadCommand.cmd == LC_SEGMENT_64 {
@@ -33,22 +34,33 @@ struct Section {
                     if isByteSwapped {
                         swap_segment_command_64(&segment, byteSwappedOrder)
                     }
-                    var offset_segment = offset_machO + 0x48
-                    for _ in 0..<segment.nsects {
-                        let sect = binary.extract(section_64.self, offset: offset_segment)
-                        let segname = String(rawCChar: sect.segname)
-                        if segname.hasPrefix("__DATA") {
-                            let sectname = String(rawCChar: sect.sectname)
-                            if sectname == "__objc_classlist__objc_classlist" {
-                                handle__objc_classlist(binary, section: sect)
-                            } else if sectname == "__objc_catlist" {
-                                handle__objc_catlist(binary, section: sect)
-                            } else if sectname == "__objc_protolist__objc_protolist" {
-                                handle__objc_protolist(binary, section: sect)
+                    let segmentSegname = String(rawCChar: segment.segname)
+                    vmAddress.append(segment.vmaddr)
+                    if segmentSegname == "__DATA_CONST" {
+                        var offset_segment = offset_machO + 0x48
+                        for _ in 0..<segment.nsects {
+                            let section = binary.extract(section_64.self, offset: offset_segment)
+                            let sectionSegname = String(rawCChar: section.segname)
+                            if sectionSegname.hasPrefix("__DATA") {
+                                let sectname = String(rawCChar: section.sectname)
+                                if sectname == "__objc_classlist__objc_classlist" || sectname == "__objc_nlclslist" {
+//                                    handle__objc_classlist(binary, section: section)
+                                } else if sectname == "__objc_catlist" {
+//                                    handle__objc_catlist(binary, section: section)
+                                } else if sectname == "__objc_protolist__objc_protolist" {
+//                                    handle__objc_protolist(binary, section: section)
+                                }
                             }
+                            offset_segment += 0x50
                         }
-                        offset_segment += 0x50
                     }
+                } else if loadCommand.cmd == LC_DYLD_INFO || loadCommand.cmd == LC_DYLD_INFO_ONLY {
+                    var dylib = binary.extract(dyld_info_command.self, offset: offset_machO)
+                    if isByteSwapped {
+                        swap_dyld_info_command(&dylib, byteSwappedOrder)
+                    }
+                    print(dylib.bind_off, dylib.bind_size)
+                    bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.bind_off), end: Int(dylib.bind_size+dylib.bind_off))
                 } else if loadCommand.cmd == LC_SYMTAB {
                     var symtab = binary.extract(symtab_command.self, offset: offset_machO)
                     if isByteSwapped {
@@ -122,5 +134,105 @@ struct Section {
             
             ObjcProtocol.OCPT(binary, offset: offsetS).write()
         }
+    }
+    
+    private static func bindingDyld(_ binary: Data, vmAddress:[UInt64], start: Int, end: Int, isLazy: Bool = false) {
+        var done = false
+        var symbolName = ""
+        var libraryOrdinal: Int32 = 0
+        var symbolFlags: Int32 = 0
+        var type: Int32 = 0
+        var addend: UInt64 = 0
+        var segmentIndex: Int32 = 0
+        let ptrSize = UInt64(MemoryLayout<UInt64>.size)
+        
+        var index = start
+        var address = vmAddress[0]
+        while index < end && !done {
+            let item = Int32(binary[index])
+            let immediate = item & BIND_IMMEDIATE_MASK
+            let opcode = item & BIND_OPCODE_MASK
+            index += 1
+            switch opcode {
+            case BIND_OPCODE_DONE:
+                if !isLazy {
+                    done = true
+                }
+                break
+            case BIND_OPCODE_SET_DYLIB_ORDINAL_IMM:
+                libraryOrdinal = immediate
+                break
+            case BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB:
+                let r = binary.ulieb128(index: index, end: end)
+                libraryOrdinal = Int32(r.1)
+                index = r.0
+                break
+            case BIND_OPCODE_SET_DYLIB_SPECIAL_IMM:
+                if immediate == 0 {
+                    libraryOrdinal = 0
+                } else {
+                    libraryOrdinal = immediate | BIND_OPCODE_MASK
+                }
+                break
+            case BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM:
+                var strData = Data()
+                while binary[index] != 0 {
+                    strData.append(contentsOf: [binary[index]])
+                    index += 1
+                }
+                index += 1
+                symbolName = String(data: strData, encoding: String.Encoding.utf8) ?? ""
+                symbolFlags = immediate
+                break
+            case BIND_OPCODE_SET_TYPE_IMM:
+                type = immediate
+                break
+            case BIND_OPCODE_SET_ADDEND_SLEB:
+                let r = binary.ulieb128(index: index, end: end)
+                index = r.0
+                addend = r.1
+                break
+            case BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB:
+                segmentIndex = immediate
+                let r = binary.ulieb128(index: index, end: end)
+                index = r.0
+                address = vmAddress[Int(segmentIndex)]+r.1
+                break
+            case BIND_OPCODE_ADD_ADDR_ULEB:
+                let r = binary.ulieb128(index: index, end: end)
+                index = r.0
+                address &+= r.1
+                break
+            case BIND_OPCODE_DO_BIND:
+                MachOData.shared.dylbMap[String(address)] = symbolName
+                address &+= ptrSize
+                break
+            case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
+                let r = binary.ulieb128(index: index, end: end)
+                index = r.0
+                MachOData.shared.dylbMap[String(address)] = symbolName
+                address &+= (ptrSize &+ r.1)
+                break
+            case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
+                MachOData.shared.dylbMap[String(address)] = symbolName
+                address &+= ptrSize + ptrSize * UInt64(immediate)
+                break
+            case BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB:
+                let r = binary.ulieb128(index: index, end: end)
+                index = r.0
+                let count = r.1
+                let r1 = binary.ulieb128(index: index, end: end)
+                index = r1.0
+                for _ in 0 ..< count {
+                    MachOData.shared.dylbMap[String(address)] = symbolName
+                    address &+= (ptrSize &+ r1.1)
+                }
+                break
+            default:
+                break
+            }
+        }
+        print(end-index)
+        print(MachOData.shared.dylbMap.keys.count)
     }
 }
