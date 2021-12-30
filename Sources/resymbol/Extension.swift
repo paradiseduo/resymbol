@@ -33,13 +33,12 @@ extension Data {
         return arr.reversed().joined()
     }
     
-    func ulieb128(index: Int, end: Int) -> (Int, UInt64) {
+    func read_uleb128(index: inout Int, end: Int) -> UInt64 {
         var result: UInt64 = 0
         var bit = 0
         var read_next = true
-        var i = index
-        
-        var p = self[i]
+
+        var p = self[index]
         repeat {
             if p == self[end] {
                 result = UInt64(p)
@@ -53,10 +52,33 @@ extension Data {
                 bit += 7
             }
             read_next = (p & 0x80) != 0  // = 128
-            i += 1
-            p = self[i]
+            index += 1
+            p = self[index]
         } while (read_next)
-        return (i, result)
+        
+        return result
+    }
+    
+    func read_sleb128(index: inout Int, end: Int) -> Int64 {
+        var result: Int64 = 0
+        var bit = 0
+        var byte: UInt8 = 0
+
+        var p = self[index]
+        repeat {
+            byte = p
+            index += 1
+            p = self[index]
+            
+            result |= (Int64(byte & 0x7F) << bit)
+            bit += 7
+        } while ((byte & 0x80) != 0)
+        
+        if (byte & 0x40) != 0 {
+            result |= ((-1) << bit)
+        }
+        
+        return result
     }
 }
 

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ArgumentParser
 
 enum BitType {
     case x86
@@ -37,3 +38,23 @@ enum BitType {
         }
     }
 }
+
+enum CDBindType: Int32 {
+    case REBASE_TYPE_POINTER = 1
+    case REBASE_TYPE_TEXT_ABSOLUTE32 = 2
+    case REBASE_TYPE_TEXT_PCREL32 = 3
+    
+    static func description(_ raw: Int32) -> String {
+        switch raw {
+        case REBASE_TYPE_POINTER.rawValue:
+            return "Pointer"
+        case REBASE_TYPE_TEXT_ABSOLUTE32.rawValue:
+            return "Absolute 32"
+        case REBASE_TYPE_TEXT_PCREL32.rawValue:
+            return "PC rel 32"
+        default:
+            return "Unknown"
+        }
+    }
+}
+
