@@ -138,6 +138,7 @@ struct Section {
         var addend: Int64 = 0
         var segmentIndex: Int32 = 0
         let ptrSize = UInt64(MemoryLayout<UInt64>.size)
+        var bindCount: UInt64 = 0
         
         var index = start
         var address = vmAddress[0]
@@ -194,29 +195,31 @@ struct Section {
                 segmentIndex = immediate
                 let r = binary.read_uleb128(index: &index, end: end)
                 print("BIND_OPCODE: SET_SEGMENT_AND_OFFSET_ULEB,    segmentIndex: \(segmentIndex), offset: \(String(format: "0x%016llx", r))  index: \(cccccc)")
-                address = vmAddress[Int(segmentIndex)] &+ r
+                address = (vmAddress[Int(segmentIndex)] &+ r)
                 print("    address = \(String(format: "0x%016llx", address))")
                 break
             case BIND_OPCODE_ADD_ADDR_ULEB:
                 let r = binary.read_uleb128(index: &index, end: end)
-                print("\(binary[index])")
                 print("BIND_OPCODE: ADD_ADDR_ULEB,                  \(address) += \(String(format: "0x%016llx", r))  index: \(cccccc)")
                 address &+= r
                 break
             case BIND_OPCODE_DO_BIND:
                 print("BIND_OPCODE: DO_BIND")
                 MachOData.shared.dylbMap[String(address)] = symbolName
+                bindCount += 1
                 address &+= ptrSize
                 break
             case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
                 let r = binary.read_uleb128(index: &index, end: end)
                 print("BIND_OPCODE: DO_BIND_ADD_ADDR_ULEB,          \(address) += \(ptrSize) + \(String(format: "%016llx", r))  index: \(cccccc)")
                 MachOData.shared.dylbMap[String(address)] = symbolName
+                bindCount += 1
                 address &+= (ptrSize &+ r)
                 break
             case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
                 print("BIND_OPCODE: DO_BIND_ADD_ADDR_IMM_SCALED,    \(address) += \(ptrSize) * \((ptrSize * UInt64(immediate)))  index: \(cccccc)")
                 MachOData.shared.dylbMap[String(address)] = symbolName
+                bindCount += 1
                 address &+= (ptrSize &+ (ptrSize * UInt64(immediate)))
                 break
             case BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB:
@@ -227,11 +230,12 @@ struct Section {
                     MachOData.shared.dylbMap[String(address)] = symbolName
                     address &+= (ptrSize &+ skip)
                 }
+                bindCount += count
                 break
             default:
                 break
             }
         }
-        print(MachOData.shared.dylbMap.keys.count)
+        print(MachOData.shared.dylbMap.keys.count, bindCount)
     }
 }

@@ -40,10 +40,6 @@ extension Data {
 
         var p = self[index]
         repeat {
-            if p == self[end] {
-                result = UInt64(p)
-                break
-            }
             let slice = UInt64(p & 0x7f)
             if bit >= 64 {
                 assert(false, "uleb128 too big for uint64")
@@ -55,7 +51,6 @@ extension Data {
             index += 1
             p = self[index]
         } while (read_next)
-        
         return result
     }
     
