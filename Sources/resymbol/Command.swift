@@ -12,13 +12,12 @@ let byteSwappedOrder = NXByteOrder(rawValue: 0)
 
 struct Section {
     
-    static func readSection(type:BitType, isByteSwapped: Bool, handle: (Bool)->()) {
+    static func readSection(_ binary: Data, type:BitType, isByteSwapped: Bool, handle: (Bool)->()) {
         if type == .x64_fat || type == .x86_fat || type == .none || type == .x86 {
             print("Only Support x64")
             handle(false)
             return
         }
-        let binary = MachOData.shared.binary
         let header = binary.extract(mach_header_64.self)
         var offset_machO = MemoryLayout.size(ofValue: header)
         var vmAddress = [UInt64]()
@@ -31,7 +30,7 @@ struct Section {
                 }
                 let segmentSegname = String(rawCChar: segment.segname)
                 vmAddress.append(segment.vmaddr)
-                if segmentSegname == "__DATA_CONST" {
+                if segmentSegname == "__DATA_CONST" || segmentSegname == "__DATA" {
                     var offset_segment = offset_machO + 0x48
                     for _ in 0..<segment.nsects {
                         let section = binary.extract(section_64.self, offset: offset_segment)
@@ -54,7 +53,9 @@ struct Section {
                 if isByteSwapped {
                     swap_dyld_info_command(&dylib, byteSwappedOrder)
                 }
-                bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.bind_off), end: Int(dylib.bind_size+dylib.bind_off))
+                bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.bind_off), end: Int(dylib.bind_off+dylib.bind_size))
+                bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.weak_bind_off), end: Int(dylib.weak_bind_off+dylib.weak_bind_size))
+                bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.lazy_bind_off), end: Int(dylib.lazy_bind_off+dylib.lazy_bind_size), isLazy: true)
             } else if loadCommand.cmd == LC_SYMTAB {
                 var symtab = binary.extract(symtab_command.self, offset: offset_machO)
                 if isByteSwapped {
@@ -109,8 +110,7 @@ struct Section {
             if offsetS % 4 != 0 {
                 offsetS -= offsetS%4
             }
-            
-            ObjcCategory.OCCG(binary, offset: offsetS).write()
+            MachOData.shared.objcCategories.append(ObjcCategory.OCCG(binary, offset: offsetS))
         }
     }
     
@@ -124,7 +124,6 @@ struct Section {
             if offsetS % 4 != 0 {
                 offsetS -= offsetS%4
             }
-            
             ObjcProtocol.OCPT(binary, offset: offsetS).write()
         }
     }
@@ -205,20 +204,20 @@ struct Section {
                 break
             case BIND_OPCODE_DO_BIND:
                 printf("BIND_OPCODE: DO_BIND")
-                MachOData.shared.dylbMap[String(address)] = symbolName
+                MachOData.shared.dylbMap(address, symbolName)
                 bindCount += 1
                 address &+= ptrSize
                 break
             case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
                 let r = binary.read_uleb128(index: &index, end: end)
                 printf("BIND_OPCODE: DO_BIND_ADD_ADDR_ULEB,          \(address) += \(ptrSize) + \(String(format: "%016llx", r))  index: \(cccccc)")
-                MachOData.shared.dylbMap[String(address)] = symbolName
+                MachOData.shared.dylbMap(address, symbolName)
                 bindCount += 1
                 address &+= (ptrSize &+ r)
                 break
             case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
                 printf("BIND_OPCODE: DO_BIND_ADD_ADDR_IMM_SCALED,    \(address) += \(ptrSize) * \((ptrSize * UInt64(immediate)))  index: \(cccccc)")
-                MachOData.shared.dylbMap[String(address)] = symbolName
+                MachOData.shared.dylbMap(address, symbolName)
                 bindCount += 1
                 address &+= (ptrSize &+ (ptrSize * UInt64(immediate)))
                 break
@@ -227,7 +226,7 @@ struct Section {
                 let skip = binary.read_uleb128(index: &index, end: end)
                 printf("BIND_OPCODE: DO_BIND_ULEB_TIMES_SKIPPING_ULEB, count: \(String(format: "%016llx", count)), skip: \(String(format: "%016llx", skip))  index: \(cccccc)")
                 for _ in 0 ..< count {
-                    MachOData.shared.dylbMap[String(address)] = symbolName
+                    MachOData.shared.dylbMap(address, symbolName)
                     address &+= (ptrSize &+ skip)
                 }
                 bindCount += count

@@ -27,11 +27,13 @@ struct Resymbol: ParsableCommand {
         } else {
             FileManager.open(machoPath: filePath, backup: false) { data in
                 if let binary = data {
-                    MachOData.shared.binary = binary
-                    let fh = MachOData.shared.binary.extract(fat_header.self)
+                    let fh = binary.extract(fat_header.self)
                     BitType.checkType(machoPath: filePath, header: fh) { type, isByteSwapped in
-                        Section.readSection(type: type, isByteSwapped: isByteSwapped) { result in
-                            
+                        Section.readSection(binary, type: type, isByteSwapped: isByteSwapped) { result in
+                            for var item in MachOData.shared.objcCategories {
+                                item.mapName()
+                                item.write()
+                            }
                         }
                     }
                 }

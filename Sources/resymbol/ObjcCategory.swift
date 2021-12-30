@@ -16,6 +16,7 @@ struct ObjcCategory {
     let instanceProperties: Properties
     let v7: DataStruct
     let v8: DataStruct
+    var externalClassName: String?
     
     static func OCCG(_ binary: Data, offset: Int) -> ObjcCategory {
         let name = ClassName.className(binary, startOffset: offset)
@@ -26,40 +27,47 @@ struct ObjcCategory {
         let instanceProperties = Properties.properties(binary, startOffset: offset+40)
         let v7 = DataStruct.data(binary, offset: offset+48, length: 8)
         let v8 = DataStruct.data(binary, offset: offset+56, length: 8)
+        let externalClassName = ""
         
-        return ObjcCategory(name: name, classs: classs, instanceMethods: instanceMethods, classMethods: classMethods, protocols: protocols, instanceProperties: instanceProperties, v7: v7, v8: v8)
+        return ObjcCategory(name: name, classs: classs, instanceMethods: instanceMethods, classMethods: classMethods, protocols: protocols, instanceProperties: instanceProperties, v7: v7, v8: v8, externalClassName: externalClassName)
+    }
+    
+    mutating func mapName() {
+        let classNameAddress = name.name.address.int16()+8
+        let key = String(classNameAddress, radix: 16, uppercase: false)
+        externalClassName = MachOData.shared.dylbMap[key]?.replacingOccurrences(of: "_OBJC_CLASS_$_", with: "")
     }
     
     func write() {
         if let s = swift_demangle(name.className.value) {
-            print(name.name.address, s)
+            print(name.name.address, "\(externalClassName ?? "")(\(s))")
         } else {
-            print(name.name.address, name.className.value)
+            print(name.name.address, "\(externalClassName ?? "")(\(name.className.value))")
         }
-        printf("----------Properties----------")
+        print("----------Properties----------")
         if let properties = instanceProperties.properties {
             for item in properties {
                 print("0x\(item.name.name.address) \(item.name.propertyName.value)")
             }
         }
-        printf("==========Instance Method==========")
+        print("==========Instance Method==========")
         if let methods = instanceMethods.methods {
             for item in methods {
                 print("0x\(item.implementation.value) \(item.name.methodName.value)")
             }
         }
-        printf("==========Class Method==========")
+        print("==========Class Method==========")
         if let methods = classMethods.methods {
             for item in methods {
                 print("0x\(item.implementation.value) \(item.name.methodName.value)")
             }
         }
-        printf("==========Protocols==========")
+        print("==========Protocols==========")
         if let methods = protocols.protocols {
             for item in methods {
                 print("0x\(item.pointer.address) \(item.pointer.value)")
             }
         }
-        printf("\n")
+        print("\n")
     }
 }

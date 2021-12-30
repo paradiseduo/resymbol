@@ -47,27 +47,27 @@ struct ObjcClass {
         } else {
             print(isa.address, classRO.name.className.value)
         }
-        printf("----------Properties----------")
+        print("----------Properties----------")
         if let properties = classRO.baseProperties.properties {
             
             for item in properties {
                 print("0x\(item.name.name.address) \(item.name.propertyName.value)")
             }
         }
-        printf("==========Class Method==========")
+        print("==========Class Method==========")
         if let methods = classMethods?.methods {
             
             for item in methods {
                 print("0x\(item.implementation.value) \(item.name.methodName.value)")
             }
         }
-        printf("==========Instance Method==========")
+        print("==========Instance Method==========")
         if let methods = classRO.baseMethod.methods {
             for item in methods {
                 print("0x\(item.implementation.value) \(item.name.methodName.value)")
             }
         }
-        printf("\n")
+        print("\n")
     }
 }
 
