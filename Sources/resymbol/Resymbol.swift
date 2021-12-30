@@ -11,12 +11,6 @@ import MachO
 
 let version = "1.0.0"
 
-class MachOData {
-    static let shared = MachOData()
-    var binary = Data()
-    var dylbMap = [String: String]()
-}
-
 struct Resymbol: ParsableCommand {
     static let configuration = CommandConfiguration(abstract: "resymbol v\(version)", discussion: "Restore symbol", version: version)
     

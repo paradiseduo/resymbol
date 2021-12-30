@@ -36,30 +36,30 @@ struct ObjcCategory {
         } else {
             print(name.name.address, name.className.value)
         }
-        print("----------Properties----------")
+        printf("----------Properties----------")
         if let properties = instanceProperties.properties {
             for item in properties {
                 print("0x\(item.name.name.address) \(item.name.propertyName.value)")
             }
         }
-        print("==========Instance Method==========")
+        printf("==========Instance Method==========")
         if let methods = instanceMethods.methods {
             for item in methods {
                 print("0x\(item.implementation.value) \(item.name.methodName.value)")
             }
         }
-        print("==========Class Method==========")
+        printf("==========Class Method==========")
         if let methods = classMethods.methods {
             for item in methods {
                 print("0x\(item.implementation.value) \(item.name.methodName.value)")
             }
         }
-        print("==========Protocols==========")
+        printf("==========Protocols==========")
         if let methods = protocols.protocols {
             for item in methods {
                 print("0x\(item.pointer.address) \(item.pointer.value)")
             }
         }
-        print("\n")
+        printf("\n")
     }
 }

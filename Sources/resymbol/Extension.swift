@@ -7,6 +7,18 @@
 
 import Foundation
 
+public func printf(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+    if DEBUG {
+        var i = 0
+        let j = items.count
+        for item in items {
+            print(item, terminator: i == j ? terminator: separator)
+            i += 1
+        }
+        print()
+    }
+}
+
 extension Data {
     func extract<T>(_ type: T.Type, offset: Int = 0) -> T {
         let data = self[offset..<offset + MemoryLayout<T>.size]

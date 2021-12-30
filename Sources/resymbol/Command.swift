@@ -39,11 +39,11 @@ struct Section {
                         if sectionSegname.hasPrefix("__DATA") {
                             let sectname = String(rawCChar: section.sectname)
                             if sectname == "__objc_classlist__objc_classlist" || sectname == "__objc_nlclslist" {
-//                                handle__objc_classlist(binary, section: section)
+                                handle__objc_classlist(binary, section: section)
                             } else if sectname == "__objc_catlist" {
-//                                handle__objc_catlist(binary, section: section)
+                                handle__objc_catlist(binary, section: section)
                             } else if sectname == "__objc_protolist__objc_protolist" {
-//                                handle__objc_protolist(binary, section: section)
+                                handle__objc_protolist(binary, section: section)
                             }
                         }
                         offset_segment += 0x50
@@ -61,16 +61,16 @@ struct Section {
                     swap_symtab_command(&symtab, byteSwappedOrder)
                 }
                 let symbolTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.symoff), length: Int(symtab.nsyms*16)))!)
-                print(symbolTable)
+                printf(symbolTable)
                 let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.stroff), length: Int(symtab.strsize)))!)
-                print(stringTable)
+                printf(stringTable)
             } else if loadCommand.cmd == LC_DYSYMTAB {
                 var dysymtab = binary.extract(dysymtab_command.self, offset: offset_machO)
                 if isByteSwapped {
                     swap_dysymtab_command(&dysymtab, byteSwappedOrder)
                 }
                 let indirectSymbolTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(dysymtab.indirectsymoff), length: Int(dysymtab.nindirectsyms*4)))!)
-                print(indirectSymbolTable)
+                printf(indirectSymbolTable)
             }
             offset_machO += Int(loadCommand.cmdsize)
         }
@@ -151,18 +151,18 @@ struct Section {
             cccccc += 1
             switch opcode {
             case BIND_OPCODE_DONE:
-                print("BIND_OPCODE: DONE")
+                printf("BIND_OPCODE: DONE")
                 if !isLazy {
                     done = true
                 }
                 break
             case BIND_OPCODE_SET_DYLIB_ORDINAL_IMM:
                 libraryOrdinal = immediate
-                print("BIND_OPCODE: SET_DYLIB_ORDINAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
+                printf("BIND_OPCODE: SET_DYLIB_ORDINAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
                 break
             case BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB:
                 libraryOrdinal = Int32(binary.read_uleb128(index: &index, end: end))
-                print("BIND_OPCODE: SET_DYLIB_ORDINAL_ULEB,         libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
+                printf("BIND_OPCODE: SET_DYLIB_ORDINAL_ULEB,         libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
                 break
             case BIND_OPCODE_SET_DYLIB_SPECIAL_IMM:
                 if immediate == 0 {
@@ -170,7 +170,7 @@ struct Section {
                 } else {
                     libraryOrdinal = immediate | BIND_OPCODE_MASK
                 }
-                print("BIND_OPCODE: SET_DYLIB_SPECIAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
+                printf("BIND_OPCODE: SET_DYLIB_SPECIAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
                 break
             case BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM:
                 var strData = Data()
@@ -181,43 +181,43 @@ struct Section {
                 index += 1
                 symbolName = String(data: strData, encoding: String.Encoding.utf8) ?? ""
                 symbolFlags = immediate
-                print("BIND_OPCODE: SET_SYMBOL_TRAILING_FLAGS_IMM,  flags: \(String(format: "%02x", symbolFlags)), str = \(symbolName)  index: \(cccccc)")
+                printf("BIND_OPCODE: SET_SYMBOL_TRAILING_FLAGS_IMM,  flags: \(String(format: "%02x", symbolFlags)), str = \(symbolName)  index: \(cccccc)")
                 break
             case BIND_OPCODE_SET_TYPE_IMM:
                 type = immediate
-                print("BIND_OPCODE: SET_TYPE_IMM,                   type = \(type) \(CDBindType.description(immediate))   index: \(cccccc)")
+                printf("BIND_OPCODE: SET_TYPE_IMM,                   type = \(type) \(CDBindType.description(immediate))   index: \(cccccc)")
                 break
             case BIND_OPCODE_SET_ADDEND_SLEB:
                 addend = binary.read_sleb128(index: &index, end: end)
-                print("BIND_OPCODE: SET_ADDEND_SLEB,                addend = \(addend)  index: \(cccccc)")
+                printf("BIND_OPCODE: SET_ADDEND_SLEB,                addend = \(addend)  index: \(cccccc)")
                 break
             case BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB:
                 segmentIndex = immediate
                 let r = binary.read_uleb128(index: &index, end: end)
-                print("BIND_OPCODE: SET_SEGMENT_AND_OFFSET_ULEB,    segmentIndex: \(segmentIndex), offset: \(String(format: "0x%016llx", r))  index: \(cccccc)")
+                printf("BIND_OPCODE: SET_SEGMENT_AND_OFFSET_ULEB,    segmentIndex: \(segmentIndex), offset: \(String(format: "0x%016llx", r))  index: \(cccccc)")
                 address = (vmAddress[Int(segmentIndex)] &+ r)
-                print("    address = \(String(format: "0x%016llx", address))")
+                printf("    address = \(String(format: "0x%016llx", address))")
                 break
             case BIND_OPCODE_ADD_ADDR_ULEB:
                 let r = binary.read_uleb128(index: &index, end: end)
-                print("BIND_OPCODE: ADD_ADDR_ULEB,                  \(address) += \(String(format: "0x%016llx", r))  index: \(cccccc)")
+                printf("BIND_OPCODE: ADD_ADDR_ULEB,                  \(address) += \(String(format: "0x%016llx", r))  index: \(cccccc)")
                 address &+= r
                 break
             case BIND_OPCODE_DO_BIND:
-                print("BIND_OPCODE: DO_BIND")
+                printf("BIND_OPCODE: DO_BIND")
                 MachOData.shared.dylbMap[String(address)] = symbolName
                 bindCount += 1
                 address &+= ptrSize
                 break
             case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
                 let r = binary.read_uleb128(index: &index, end: end)
-                print("BIND_OPCODE: DO_BIND_ADD_ADDR_ULEB,          \(address) += \(ptrSize) + \(String(format: "%016llx", r))  index: \(cccccc)")
+                printf("BIND_OPCODE: DO_BIND_ADD_ADDR_ULEB,          \(address) += \(ptrSize) + \(String(format: "%016llx", r))  index: \(cccccc)")
                 MachOData.shared.dylbMap[String(address)] = symbolName
                 bindCount += 1
                 address &+= (ptrSize &+ r)
                 break
             case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
-                print("BIND_OPCODE: DO_BIND_ADD_ADDR_IMM_SCALED,    \(address) += \(ptrSize) * \((ptrSize * UInt64(immediate)))  index: \(cccccc)")
+                printf("BIND_OPCODE: DO_BIND_ADD_ADDR_IMM_SCALED,    \(address) += \(ptrSize) * \((ptrSize * UInt64(immediate)))  index: \(cccccc)")
                 MachOData.shared.dylbMap[String(address)] = symbolName
                 bindCount += 1
                 address &+= (ptrSize &+ (ptrSize * UInt64(immediate)))
@@ -225,7 +225,7 @@ struct Section {
             case BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB:
                 let count = binary.read_uleb128(index: &index, end: end)
                 let skip = binary.read_uleb128(index: &index, end: end)
-                print("BIND_OPCODE: DO_BIND_ULEB_TIMES_SKIPPING_ULEB, count: \(String(format: "%016llx", count)), skip: \(String(format: "%016llx", skip))  index: \(cccccc)")
+                printf("BIND_OPCODE: DO_BIND_ULEB_TIMES_SKIPPING_ULEB, count: \(String(format: "%016llx", count)), skip: \(String(format: "%016llx", skip))  index: \(cccccc)")
                 for _ in 0 ..< count {
                     MachOData.shared.dylbMap[String(address)] = symbolName
                     address &+= (ptrSize &+ skip)
@@ -236,6 +236,6 @@ struct Section {
                 break
             }
         }
-        print(MachOData.shared.dylbMap.keys.count, bindCount)
+        printf(MachOData.shared.dylbMap.keys.count, bindCount)
     }
 }
