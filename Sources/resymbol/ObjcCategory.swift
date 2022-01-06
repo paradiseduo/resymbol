@@ -47,19 +47,19 @@ struct ObjcCategory {
         print("----------Properties----------")
         if let properties = instanceProperties.properties {
             for item in properties {
-                print("0x\(item.name.name.address) \(item.name.propertyName.value)")
+                print("0x\(item.name.name.address) \(item.serialization())")
             }
         }
         print("==========Instance Method==========")
         if let methods = instanceMethods.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value)")
+                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
             }
         }
         print("==========Class Method==========")
         if let methods = classMethods.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value)")
+                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
             }
         }
         print("==========Protocols==========")

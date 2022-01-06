@@ -49,22 +49,20 @@ struct ObjcClass {
         }
         print("----------Properties----------")
         if let properties = classRO.baseProperties.properties {
-            
             for item in properties {
-                print("0x\(item.name.name.address) \(item.name.propertyName.value)")
+                print("0x\(item.name.name.address) \(item.serialization())")
             }
         }
         print("==========Class Method==========")
         if let methods = classMethods?.methods {
-            
             for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value)")
+                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
             }
         }
         print("==========Instance Method==========")
         if let methods = classRO.baseMethod.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value)")
+                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
             }
         }
         print("\n")

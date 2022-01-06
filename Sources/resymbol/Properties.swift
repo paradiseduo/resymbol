@@ -45,6 +45,76 @@ struct Property {
         }
         return result
     }
+    
+    func serialization() -> String {
+        var alist = [String]()
+        var unknownAttrs = [String]()
+        var isWeak = false
+        var isDynamic = false
+        var backingVar = ""
+        var type = ""
+        let attrs = attributes.propertyAttributes.value.components(separatedBy: ",")
+        for item in attrs {
+            if item.hasPrefix("T") {
+                if item.contains("\"") {
+                    type = item.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "T@", with: "")
+                    if type.contains("<") {
+                        type = "id " + type
+                    } else {
+                        type += " *"
+                    }
+                } else {
+                    type = primitiveType(item[1...])
+                }
+                type += " " + name.propertyName.value
+            } else if item.hasPrefix("R") {
+                alist.append("readonly")
+            } else if item.hasPrefix("C") {
+                alist.append("copy")
+            } else if item.hasPrefix("&") {
+                alist.append("retain")
+            } else if item.hasPrefix("G") {
+                alist.append("getter=\(item[1...])")
+            } else if item.hasPrefix("S") {
+                alist.append("setter=\(item[1...])")
+            } else if item.hasPrefix("V") {
+                backingVar = item[1...]
+            } else if item.hasPrefix("N") {
+                alist.append("nonatomic")
+            } else if item.hasPrefix("W") {
+                isWeak = true
+            } else if item.hasPrefix("P") {
+                isWeak = false
+            } else if item.hasPrefix("D") {
+                isDynamic = true
+            } else {
+                unknownAttrs.append(item)
+            }
+        }
+        var result = ""
+        if alist.count > 0 {
+            result.append("@property(\(alist.joined(separator: ", "))) ")
+        } else {
+            result.append("@property ")
+        }
+        if isWeak {
+            result.append("__weak ")
+        }
+        result.append("\(type)")
+        if isDynamic {
+            result.append("// @dynamic \(name.propertyName.value);")
+        } else if (backingVar != "") {
+            if backingVar == name.propertyName.value {
+                result.append(" // @synthesize \(name.propertyName.value);")
+            } else {
+                result.append(" // @synthesize \(name.propertyName.value)=\(backingVar);")
+            }
+        }
+        if unknownAttrs.count > 0 {
+            
+        }
+        return result
+    }
 }
 
 struct Properties {

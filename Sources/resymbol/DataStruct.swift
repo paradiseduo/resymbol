@@ -31,7 +31,7 @@ struct DataStruct {
                     strData.append(item)
                 } else {
                     if strData.count > 0 {
-                        let strValue = String(data: strData, encoding: String.Encoding.utf8) ?? ""
+                        let strValue = String(data: strData, encoding: String.Encoding.ascii) ?? ""
                         return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: strValue)
                     }
                 }

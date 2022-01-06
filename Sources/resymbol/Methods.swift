@@ -22,9 +22,14 @@ struct MethodTypes {
     let types: DataStruct
     let methodTypes: DataStruct
     
-    static func methodTypes(_ binary: Data, offset: Int) -> MethodTypes {
+    static func methodTypes(_ binary: Data, offset: Int, hasExtendedMethodTypes: Bool = false, typeOffSet: Int = 0) -> MethodTypes {
         let types = DataStruct.data(binary, offset: offset, length: 8)
-        let methodTypes = DataStruct.textData(binary, offset: types.value.int16Replace(), length: 128)
+        let methodTypes: DataStruct
+        if hasExtendedMethodTypes {
+            methodTypes = DataStruct.textData(binary, offset: typeOffSet, length: 128)
+        } else {
+            methodTypes = DataStruct.textData(binary, offset: types.value.int16Replace(), length: 128)
+        }
         return MethodTypes(types: types, methodTypes: methodTypes)
     }
 }
@@ -34,13 +39,19 @@ struct Method {
     let types: MethodTypes
     let implementation: DataStruct
     
-    static func methods(_ binary: Data, startOffset: Int, count: Int) -> [Method] {
+    static func methods(_ binary: Data, startOffset: Int, count: Int, hasExtendedMethodTypes: Bool = false, typeOffSet: Int = 0) -> [Method] {
         var result = [Method]()
         var offSet = startOffset
+        var typeOffSet = typeOffSet
+        var start = 0
         for _ in 0..<count {
             let name = MethodName.methodName(binary, offset: offSet)
             offSet += 8
-            let types = MethodTypes.methodTypes(binary, offset: offSet)
+            if hasExtendedMethodTypes {
+                start = DataStruct.data(binary, offset: typeOffSet, length: 8).value.int16Replace()
+                typeOffSet += 8
+            }
+            let types = MethodTypes.methodTypes(binary, offset: offSet, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: start)
             offSet += 8
             let implementation = DataStruct.data(binary, offset: offSet, length: 8)
             offSet += 8
@@ -56,13 +67,13 @@ struct Methods {
     let elementCount: DataStruct?
     let methods: [Method]?
     
-    static func methods(_ binary: Data, startOffset: Int) -> Methods {
+    static func methods(_ binary: Data, startOffset: Int, hasExtendedMethodTypes: Bool = false, typeOffSet: Int = 0) -> Methods {
         let baseMethod = DataStruct.data(binary, offset: startOffset, length: 8)
         let offSetMD = baseMethod.value.int16Replace()
         if offSetMD > 0 {
             let elementSize = DataStruct.data(binary, offset: offSetMD, length: 4)
             let elementCount = DataStruct.data(binary, offset: offSetMD+4, length: 4)
-            let methods = Method.methods(binary, startOffset: offSetMD+8, count: elementCount.value.int16())
+            let methods = Method.methods(binary, startOffset: offSetMD+8, count: elementCount.value.int16(), hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: typeOffSet)
             return Methods(baseMethod: baseMethod, elementSize: elementSize, elementCount: elementCount, methods: methods)
         } else {
             return Methods(baseMethod: baseMethod, elementSize: nil, elementCount: nil, methods: nil)

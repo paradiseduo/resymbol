@@ -103,6 +103,7 @@ struct Section {
     private static func handle__objc_catlist(_ binary: Data, section: section_64) {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>3
+        MachOData.shared.objcCategories.reserveCapacity(count)
         for i in 0..<count {
             let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
             
