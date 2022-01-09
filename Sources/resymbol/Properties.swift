@@ -13,7 +13,7 @@ struct PropertyName {
     
     static func propertyName(_ binary: Data, offset: Int) -> PropertyName {
         let name = DataStruct.data(binary, offset: offset, length: 8)
-        let propertyName = DataStruct.textData(binary, offset: name.value.int16Replace(), length: 128)
+        let propertyName = DataStruct.textData(binary, offset: name.value.int16Replace())
         return PropertyName(name: name, propertyName: propertyName)
     }
 }
@@ -24,7 +24,7 @@ struct PropertyAttributes {
     
     static func propertyName(_ binary: Data, offset: Int) -> PropertyAttributes {
         let attributes = DataStruct.data(binary, offset: offset, length: 8)
-        let propertyAttributes = DataStruct.textData(binary, offset: attributes.value.int16Replace(), length: 128)
+        let propertyAttributes = DataStruct.textData(binary, offset: attributes.value.int16Replace())
         return PropertyAttributes(attributes: attributes, propertyAttributes: propertyAttributes)
     }
 }
@@ -56,17 +56,7 @@ struct Property {
         let attrs = attributes.propertyAttributes.value.components(separatedBy: ",")
         for item in attrs {
             if item.hasPrefix("T") {
-                if item.contains("\"") {
-                    type = item.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "T@", with: "")
-                    if type.contains("<") {
-                        type = "id " + type
-                    } else {
-                        type += " *"
-                    }
-                } else {
-                    type = primitiveType(item[1...])
-                }
-                type += " " + name.propertyName.value
+                type += (primitiveType(item[1...]) + " " + name.propertyName.value)
             } else if item.hasPrefix("R") {
                 alist.append("readonly")
             } else if item.hasPrefix("C") {
@@ -100,7 +90,7 @@ struct Property {
         if isWeak {
             result.append("__weak ")
         }
-        result.append("\(type)")
+        result.append("\(type);")
         if isDynamic {
             result.append("// @dynamic \(name.propertyName.value);")
         } else if (backingVar != "") {

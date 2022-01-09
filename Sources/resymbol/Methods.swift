@@ -13,7 +13,7 @@ struct MethodName {
     
     static func methodName(_ binary: Data, offset: Int) -> MethodName {
         let name = DataStruct.data(binary, offset: offset, length: 8)
-        let methodName = DataStruct.textData(binary, offset: name.value.int16Replace(), length: 128)
+        let methodName = DataStruct.textData(binary, offset: name.value.int16Replace())
         return MethodName(name: name, methodName: methodName)
     }
 }
@@ -26,9 +26,9 @@ struct MethodTypes {
         let types = DataStruct.data(binary, offset: offset, length: 8)
         let methodTypes: DataStruct
         if hasExtendedMethodTypes {
-            methodTypes = DataStruct.textData(binary, offset: typeOffSet, length: 128)
+            methodTypes = DataStruct.textData(binary, offset: typeOffSet)
         } else {
-            methodTypes = DataStruct.textData(binary, offset: types.value.int16Replace(), length: 128)
+            methodTypes = DataStruct.textData(binary, offset: types.value.int16Replace())
         }
         return MethodTypes(types: types, methodTypes: methodTypes)
     }
@@ -39,10 +39,9 @@ struct Method {
     let types: MethodTypes
     let implementation: DataStruct
     
-    static func methods(_ binary: Data, startOffset: Int, count: Int, hasExtendedMethodTypes: Bool = false, typeOffSet: Int = 0) -> [Method] {
+    static func methods(_ binary: Data, startOffset: Int, count: Int, hasExtendedMethodTypes: Bool = false, typeOffSet: inout Int) -> [Method] {
         var result = [Method]()
         var offSet = startOffset
-        var typeOffSet = typeOffSet
         var start = 0
         for _ in 0..<count {
             let name = MethodName.methodName(binary, offset: offSet)
@@ -59,6 +58,66 @@ struct Method {
         }
         return result
     }
+    
+    func serialization(isClass: Bool) -> String {
+        let replaceType = types.methodTypes.value.replacingOccurrences(of: "@0:8", with: "")
+        let strArray = Array(replaceType).map { c in
+            return String(c)
+        }
+        var typeArray = [String]()
+        var index = 0
+        while index < strArray.count {
+            var type = ""
+            //用于引号配对
+            var count = 0
+            for j in index..<strArray.count {
+                if strArray[j].rangeOfCharacter(from: CharacterSet.decimalDigits) != nil && (count == 0 || count == 2) {
+                    index = j
+                    if type.count > 0 {
+                        typeArray.append(type)
+                    }
+                    break
+                } else {
+                    type += strArray[j]
+                    if strArray[j] == "\"" {
+                        count += 1
+                    }
+                }
+            }
+            index += 1
+        }
+        var result = ""
+        if isClass {
+            if typeArray.count > 0 {
+                result += "+" + "(\(primitiveType(typeArray[0])))"
+            } else {
+                return "+" + "(MISSING_TYPE *)" + name.methodName.value + ";"
+            }
+        } else {
+            if typeArray.count > 0 {
+                result += "-" + "(\(primitiveType(typeArray[0])))"
+            } else {
+                return "-" + "(MISSING_TYPE *)" + name.methodName.value + ";"
+            }
+        }
+        let names = name.methodName.value.components(separatedBy: ":").filter { s in
+            s.count > 0
+        }
+        if !name.methodName.value.contains(":") && names.count == 1 {
+            result += names[0]+";"
+        } else {
+            for i in 0..<names.count {
+                if i+1 >= typeArray.count {
+                    result +=  names[i] + ":(MISSING_TYPE *)" + "arg\(i+1) "
+                } else {
+                    result +=  names[i] + ":(\(primitiveType(typeArray[i+1])))" + "arg\(i+1) "
+                }
+
+            }
+            result = result.trimmingCharacters(in: CharacterSet.whitespaces) + ";"
+        }
+        return result
+    }
 }
 
 struct Methods {
@@ -67,13 +126,13 @@ struct Methods {
     let elementCount: DataStruct?
     let methods: [Method]?
     
-    static func methods(_ binary: Data, startOffset: Int, hasExtendedMethodTypes: Bool = false, typeOffSet: Int = 0) -> Methods {
+    static func methods(_ binary: Data, startOffset: Int, hasExtendedMethodTypes: Bool = false, typeOffSet: inout Int) -> Methods {
         let baseMethod = DataStruct.data(binary, offset: startOffset, length: 8)
         let offSetMD = baseMethod.value.int16Replace()
         if offSetMD > 0 {
             let elementSize = DataStruct.data(binary, offset: offSetMD, length: 4)
             let elementCount = DataStruct.data(binary, offset: offSetMD+4, length: 4)
-            let methods = Method.methods(binary, startOffset: offSetMD+8, count: elementCount.value.int16(), hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: typeOffSet)
+            let methods = Method.methods(binary, startOffset: offSetMD+8, count: elementCount.value.int16(), hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: &typeOffSet)
             return Methods(baseMethod: baseMethod, elementSize: elementSize, elementCount: elementCount, methods: methods)
         } else {
             return Methods(baseMethod: baseMethod, elementSize: nil, elementCount: nil, methods: nil)

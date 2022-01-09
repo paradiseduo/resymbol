@@ -32,12 +32,13 @@ struct ObjcProtocol {
         // 这里判断是否具有附加属性
         let hasExtendedMethodTypes = size.value.int16() > (8 * MemoryLayout<UInt64>.size + 2 * MemoryLayout<UInt32>.size)
         let extendedMethodTypes = MethodTypes.methodTypes(binary, offset: offset+72)
+        var typeOffset = extendedMethodTypes.types.value.int16Replace()
         
         // 先判断附加属性再生产method的数组，不然要生成两边，浪费时间
-        let instanceMethods = Methods.methods(binary, startOffset: offset+24, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: extendedMethodTypes.types.value.int16Replace())
-        let classMethods = Methods.methods(binary, startOffset: offset+32, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: extendedMethodTypes.types.value.int16Replace())
-        let optionalInstanceMethods = Methods.methods(binary, startOffset: offset+40, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: extendedMethodTypes.types.value.int16Replace())
-        let optionalClassMethods = Methods.methods(binary, startOffset: offset+48, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: extendedMethodTypes.types.value.int16Replace())
+        let instanceMethods = Methods.methods(binary, startOffset: offset+24, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: &typeOffset)
+        let classMethods = Methods.methods(binary, startOffset: offset+32, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: &typeOffset)
+        let optionalInstanceMethods = Methods.methods(binary, startOffset: offset+40, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: &typeOffset)
+        let optionalClassMethods = Methods.methods(binary, startOffset: offset+48, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: &typeOffset)
         
         return ObjcProtocol(isa: isa, name: name, protocols: protocols, instanceMethods: instanceMethods, classMethods: classMethods, optionalInstanceMethods: optionalInstanceMethods, optionalClassMethods: optionalClassMethods, instanceProperties: instanceProperties, size: size, flag: flag, extendedMethodTypes: extendedMethodTypes)
     }
@@ -57,25 +58,25 @@ struct ObjcProtocol {
         print("==========Class Method==========")
         if let methods = classMethods.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
-            }
-        }
-        print("==========Instance Method==========")
-        if let methods = instanceMethods.methods {
-            for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
-            }
-        }
-        print("==========Optional Instance Method==========")
-        if let methods = optionalInstanceMethods.methods {
-            for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
+                print("\(item.serialization(isClass: true))")
             }
         }
         print("==========Optional Class Method==========")
         if let methods = optionalClassMethods.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
+                print("\(item.serialization(isClass: true))")
+            }
+        }
+        print("==========Instance Method==========")
+        if let methods = instanceMethods.methods {
+            for item in methods {
+                print("\(item.serialization(isClass: false))")
+            }
+        }
+        print("==========Optional Instance Method==========")
+        if let methods = optionalInstanceMethods.methods {
+            for item in methods {
+                print("\(item.serialization(isClass: false))")
             }
         }
         print("\n")

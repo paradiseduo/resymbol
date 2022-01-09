@@ -18,26 +18,20 @@ struct DataStruct {
         return DataStruct(address: String(format: "%08x", offset), data: b, dataString: b.rawValue(), value: b.rawValueBig())
     }
     
-    static func textData(_ binary: Data, offset: Int, length: Int) -> DataStruct {
-        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: offset, length: length))!)
-        var offset = offset
-        let end = offset + length
+    static func textData(_ binary: Data, offset: Int) -> DataStruct {
+        var start = offset
         var strData = Data()
-        for item in d {
-            if offset >= end {
-                break
+        while true {
+            let item = binary[start]
+            if item != 0 {
+                strData.append(item)
             } else {
-                if item != 0 {
-                    strData.append(item)
-                } else {
-                    if strData.count > 0 {
-                        let strValue = String(data: strData, encoding: String.Encoding.ascii) ?? ""
-                        return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: strValue)
-                    }
+                if strData.count > 0 {
+                    let strValue = String(data: strData, encoding: String.Encoding.ascii) ?? ""
+                    return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: strValue)
                 }
             }
-            offset += 1
+            start += 1
         }
-        return DataStruct(address: "", data: Data(), dataString: "", value: "")
     }
 }

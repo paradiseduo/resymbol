@@ -56,13 +56,13 @@ struct ObjcClass {
         print("==========Class Method==========")
         if let methods = classMethods?.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
+                print("0x\(item.implementation.value) \(item.serialization(isClass: true))")
             }
         }
         print("==========Instance Method==========")
         if let methods = classRO.baseMethod.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
+                print("0x\(item.implementation.value) \(item.serialization(isClass: false))")
             }
         }
         print("\n")
@@ -83,14 +83,15 @@ struct ObjcClassRO {
     let baseProperties: Properties
     
     static func OCRO(_ binary: Data, offset: Int) -> ObjcClassRO {
+        var typeOffset = 0
         let flags = Flags.flags(binary, startOffset: offset)
         let instanceStart = DataStruct.data(binary, offset: offset+4, length: 4)
         let instanceSize = DataStruct.data(binary, offset: offset+8, length: 4)
         let reserved = DataStruct.data(binary, offset: offset+12, length: 4)
         let ivarlayout = DataStruct.data(binary, offset: offset+16, length: 8)
         let name = ClassName.className(binary, startOffset: offset+24)
-
-        let baseMethod = Methods.methods(binary, startOffset: offset+32)
+        
+        let baseMethod = Methods.methods(binary, startOffset: offset+32, typeOffSet: &typeOffset)
         let baseProtocol = Protocols.protocols(binary, startOffset: offset+40)
         let ivars = InstanceVariables.instances(binary, startOffset: offset+48)
         let weakIvarLayout = DataStruct.data(binary, offset: offset+56, length: 8)

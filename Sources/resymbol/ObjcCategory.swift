@@ -19,10 +19,11 @@ struct ObjcCategory {
     var externalClassName: String?
     
     static func OCCG(_ binary: Data, offset: Int) -> ObjcCategory {
+        var typeOffset = 0
         let name = ClassName.className(binary, startOffset: offset)
         let classs = DataStruct.data(binary, offset: offset+8, length: 8)
-        let instanceMethods = Methods.methods(binary, startOffset: offset+16)
-        let classMethods = Methods.methods(binary, startOffset: offset+24)
+        let instanceMethods = Methods.methods(binary, startOffset: offset+16, typeOffSet: &typeOffset)
+        let classMethods = Methods.methods(binary, startOffset: offset+24, typeOffSet: &typeOffset)
         let protocols = Protocols.protocols(binary, startOffset: offset+32)
         let instanceProperties = Properties.properties(binary, startOffset: offset+40)
         let v7 = DataStruct.data(binary, offset: offset+48, length: 8)
@@ -53,13 +54,13 @@ struct ObjcCategory {
         print("==========Instance Method==========")
         if let methods = instanceMethods.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
+                print("0x\(item.implementation.value) \(item.serialization(isClass: false))")
             }
         }
         print("==========Class Method==========")
         if let methods = classMethods.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.name.methodName.value) \(item.types.methodTypes.value)")
+                print("0x\(item.implementation.value) \(item.serialization(isClass: true))")
             }
         }
         print("==========Protocols==========")
