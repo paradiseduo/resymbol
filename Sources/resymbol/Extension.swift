@@ -203,11 +203,11 @@ class DispatchLimitQueue {
         let label = "\(queue.label).limit"
         var limitSemaphore: DispatchSemaphore!
         var receiveQueue: DispatchQueue!
-        if receiveQueues[label] != nil && limitSemaphores[label] != nil {
-            limitSemaphore = limitSemaphores[label]
-            receiveQueue = receiveQueues[label]
+        if let q = receiveQueues[label], let s = limitSemaphores[label] {
+            limitSemaphore = s
+            receiveQueue = q
         } else {
-            limitSemaphore = DispatchSemaphore.init(value: count)
+            limitSemaphore = DispatchSemaphore(value: count)
             receiveQueue = DispatchQueue(label: label)
             limitSemaphores[label] = limitSemaphore
             receiveQueues[label] = receiveQueue
@@ -215,16 +215,11 @@ class DispatchLimitQueue {
         
         receiveQueue.async {
             let _ = limitSemaphore.wait(timeout: DispatchTime.distantFuture)
-            if let g = group {
-                queue.async(group: g) {
-                    handle()
+            queue.async(group: group) {
+                defer {
                     limitSemaphore.signal()
                 }
-            } else {
-                queue.async {
-                    handle()
-                    limitSemaphore.signal()
-                }
+                handle()
             }
         }
     }
