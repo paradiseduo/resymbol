@@ -37,11 +37,11 @@ struct Section {
                         let sectionSegname = String(rawCChar: section.segname)
                         if sectionSegname.hasPrefix("__DATA") {
                             let sectname = String(rawCChar: section.sectname)
-                            if sectname == "__objc_classlist__objc_classlist" || sectname == "__objc_nlclslist" {
+                            if sectname.contains("objc_classlist") || sectname.contains("objc_nlclslist") {
                                 handle__objc_classlist(binary, section: section)
-                            } else if sectname == "__objc_catlist" {
+                            } else if sectname.contains("objc_catlist") || sectname.contains("objc_nlcatlist"){
                                 handle__objc_catlist(binary, section: section)
-                            } else if sectname == "__objc_protolist__objc_protolist" {
+                            } else if sectname.contains("objc_protolist") {
                                 handle__objc_protolist(binary, section: section)
                             }
                         }
@@ -96,6 +96,7 @@ struct Section {
                 metaClassOffset -= metaClassOffset%4
             }
             oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
+            MachOData.shared.objcClasses[oc.isa.address.int16()] = oc.classRO.name.className.value
             oc.write()
         }
     }

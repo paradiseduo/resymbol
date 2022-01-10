@@ -13,7 +13,7 @@ struct ClassName {
     
     static func className(_ binary: Data, startOffset: Int) -> ClassName {
         let name = DataStruct.data(binary, offset: startOffset, length: 8)
-        let className = DataStruct.textData(binary, offset: name.value.int16Replace())
+        let className = DataStruct.textData(binary, offset: name.value.int16Replace(), isClassName: true)
         return ClassName(name: name, className: className)
     }
 }

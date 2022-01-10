@@ -36,39 +36,38 @@ struct ObjcCategory {
     mutating func mapName() {
         let classNameAddress = name.name.address.int16()+8
         let key = String(classNameAddress, radix: 16, uppercase: false)
-        externalClassName = MachOData.shared.dylbMap[key]?.replacingOccurrences(of: "_OBJC_CLASS_$_", with: "")
+        if let s = MachOData.shared.dylbMap[key] {
+            externalClassName = s.replacingOccurrences(of: "_OBJC_CLASS_$_", with: "")
+        } else {
+            externalClassName = MachOData.shared.classNameFrom(address: classs.value)
+        }
     }
     
     func write() {
-        if let s = swift_demangle(name.className.value) {
-            print(name.name.address, "\(externalClassName ?? "")(\(s))")
-        } else {
-            print(name.name.address, "\(externalClassName ?? "")(\(name.className.value))")
-        }
-        print("----------Properties----------")
+        var result = "@interface \(externalClassName ?? "")(\(name.className.value)) //\(name.name.address) \n"
+        
         if let properties = instanceProperties.properties {
             for item in properties {
-                print("0x\(item.name.name.address) \(item.serialization())")
+                result += "\(item.serialization()) //0x\(item.name.name.address)\n"
             }
+            result += "\n"
         }
-        print("==========Instance Method==========")
         if let methods = instanceMethods.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.serialization(isClass: false))")
+                result += "\(item.serialization(isClass: false)) //0x\(item.implementation.value)\n"
             }
         }
-        print("==========Class Method==========")
         if let methods = classMethods.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.serialization(isClass: true))")
+                result += "\(item.serialization(isClass: true)) //0x\(item.implementation.value) \n"
             }
         }
-        print("==========Protocols==========")
         if let methods = protocols.protocols {
             for item in methods {
-                print("0x\(item.pointer.address) \(item.pointer.value)")
+                result += "\(item.pointer.value) //0x\(item.pointer.address)\n"
             }
         }
-        print("\n")
+        result += "@end\n"
+        print(result)
     }
 }

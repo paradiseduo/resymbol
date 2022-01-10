@@ -18,7 +18,7 @@ struct DataStruct {
         return DataStruct(address: String(format: "%08x", offset), data: b, dataString: b.rawValue(), value: b.rawValueBig())
     }
     
-    static func textData(_ binary: Data, offset: Int) -> DataStruct {
+    static func textData(_ binary: Data, offset: Int, isClassName: Bool = false) -> DataStruct {
         var start = offset
         var strData = Data()
         while true {
@@ -28,6 +28,11 @@ struct DataStruct {
             } else {
                 if strData.count > 0 {
                     let strValue = String(data: strData, encoding: String.Encoding.ascii) ?? ""
+                    if isClassName {
+                        if let s = swift_demangle(strValue) {
+                            return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: s)
+                        }
+                    }
                     return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: strValue)
                 }
             }

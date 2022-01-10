@@ -44,41 +44,37 @@ struct ObjcProtocol {
     }
     
     func write() {
-        if let s = swift_demangle(name.className.value) {
-            print(isa.address, s)
-        } else {
-            print(isa.address, name.className.value)
-        }
-        print("----------Properties----------")
+        var result = "@protocol \(name.className.value) //\(isa.address) \n"
+        
         if let properties = instanceProperties.properties {
             for item in properties {
-                print("0x\(item.name.name.address) \(item.serialization())")
+                result += "\(item.serialization()) //0x\(item.name.name.address)\n"
             }
+            result += "\n"
         }
-        print("==========Class Method==========")
         if let methods = classMethods.methods {
             for item in methods {
-                print("\(item.serialization(isClass: true))")
+                result += "\(item.serialization(isClass: true))\n"
             }
         }
-        print("==========Optional Class Method==========")
-        if let methods = optionalClassMethods.methods {
-            for item in methods {
-                print("\(item.serialization(isClass: true))")
-            }
-        }
-        print("==========Instance Method==========")
         if let methods = instanceMethods.methods {
             for item in methods {
-                print("\(item.serialization(isClass: false))")
+                result += "\(item.serialization(isClass: false))\n"
             }
         }
-        print("==========Optional Instance Method==========")
-        if let methods = optionalInstanceMethods.methods {
+        if let methods = optionalClassMethods.methods {
+            result += "\n@optional\n"
             for item in methods {
-                print("\(item.serialization(isClass: false))")
+                result += "\(item.serialization(isClass: true))\n"
             }
         }
-        print("\n")
+        if let methods = optionalInstanceMethods.methods {
+            result += "\n@optional\n"
+            for item in methods {
+                result += "\(item.serialization(isClass: false))\n"
+            }
+        }
+        result += "@end\n"
+        print(result)
     }
 }

@@ -42,30 +42,26 @@ struct ObjcClass {
     }
     
     func write() {
-        if let s = swift_demangle(classRO.name.className.value) {
-            print(isa.address, s)
-        } else {
-            print(isa.address, classRO.name.className.value)
-        }
-        print("----------Properties----------")
+        var result = "@interface \(classRO.name.className.value) //\(isa.address)\n"
+
         if let properties = classRO.baseProperties.properties {
             for item in properties {
-                print("0x\(item.name.name.address) \(item.serialization())")
+                result += "\(item.serialization()) //0x\(item.name.name.address)\n"
             }
+            result += "\n"
         }
-        print("==========Class Method==========")
         if let methods = classMethods?.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.serialization(isClass: true))")
+                result += "\(item.serialization(isClass: true)) //0x\(item.implementation.value)\n"
             }
         }
-        print("==========Instance Method==========")
         if let methods = classRO.baseMethod.methods {
             for item in methods {
-                print("0x\(item.implementation.value) \(item.serialization(isClass: false))")
+                result += "\(item.serialization(isClass: false)) //0x\(item.implementation.value)\n"
             }
         }
-        print("\n")
+        result += "@end\n"
+        print(result)
     }
 }
 
