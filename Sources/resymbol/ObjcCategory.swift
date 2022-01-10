@@ -28,19 +28,17 @@ struct ObjcCategory {
         let instanceProperties = Properties.properties(binary, startOffset: offset+40)
         let v7 = DataStruct.data(binary, offset: offset+48, length: 8)
         let v8 = DataStruct.data(binary, offset: offset+56, length: 8)
-        let externalClassName = ""
         
-        return ObjcCategory(name: name, classs: classs, instanceMethods: instanceMethods, classMethods: classMethods, protocols: protocols, instanceProperties: instanceProperties, v7: v7, v8: v8, externalClassName: externalClassName)
-    }
-    
-    mutating func mapName() {
+        var externalClassName = ""
         let classNameAddress = name.name.address.int16()+8
         let key = String(classNameAddress, radix: 16, uppercase: false)
-        if let s = MachOData.shared.dylbMap[key] {
+        if let s = MachOData.shared.dylbMap.get(address: key) {
             externalClassName = s.replacingOccurrences(of: "_OBJC_CLASS_$_", with: "")
         } else {
-            externalClassName = MachOData.shared.classNameFrom(address: classs.value)
+            externalClassName = MachOData.shared.objcClasses.get(address: classs.value)
         }
+        
+        return ObjcCategory(name: name, classs: classs, instanceMethods: instanceMethods, classMethods: classMethods, protocols: protocols, instanceProperties: instanceProperties, v7: v7, v8: v8, externalClassName: externalClassName)
     }
     
     func write() {

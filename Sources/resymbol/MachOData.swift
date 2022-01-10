@@ -9,19 +9,70 @@ import Foundation
 
 class MachOData {
     static let shared = MachOData()
-    var objcCategories = [ObjcCategory]()
-    var objcClasses = [Int: String]()
-    var dylbMap = [String: String]()
+    var objcClasses = ObjcClassesDic()
+    var dylbMap = DyldDic()
     
     private init() {}
-    
-    func dylbMap(_ address: UInt64, _ name: String) {
-        let add = address - 0x100000000
-        self.dylbMap[String(add, radix: 16, uppercase: false)] = name
+}
+
+class ObjcClassesDic {
+    let serialQueue = DispatchQueue(label: "ObjcClassesDicSyncQueue", attributes: .concurrent)
+
+    private var _data = [Int: String]()
+
+    var data: [Int: String] {
+        get {
+            return serialQueue.sync {
+                return _data
+            }
+        }
+        set {
+            serialQueue.async(flags: .barrier) {
+                self._data = newValue
+            }
+        }
     }
-    
-    func classNameFrom(address: String) -> String {
-        let index = address.int16Replace()
-        return self.objcClasses[index] ?? ""
+
+    func get(address: String) -> String {
+        serialQueue.sync {
+            let index = address.int16Replace()
+            return _data[index] ?? ""
+        }
+    }
+    func set(address: Int, vaule newValue: String) {
+        serialQueue.async(flags: .barrier) {
+            self._data[address] = newValue
+        }
+    }
+}
+
+class DyldDic {
+    let serialQueue = DispatchQueue(label: "DyldDicSyncQueue", attributes: .concurrent)
+
+    private var _data = [String: String]()
+
+    var data: [String: String] {
+        get {
+            return serialQueue.sync {
+                return _data
+            }
+        }
+        set {
+            serialQueue.async(flags: .barrier) {
+                self._data = newValue
+            }
+        }
+    }
+
+    func get(address: String) -> String? {
+        serialQueue.sync {
+            return _data[address]
+        }
+    }
+    func set(address: UInt64, vaule newValue: String) {
+        serialQueue.async(flags: .barrier) {
+            let add = address - 0x100000000
+            self._data[String(add, radix: 16, uppercase: false)] = newValue
+        }
     }
 }

@@ -21,7 +21,6 @@ struct Resymbol: ParsableCommand {
     var ipa = false
     
     mutating func run() throws {
-
         if ipa {
             
         } else {
@@ -30,15 +29,11 @@ struct Resymbol: ParsableCommand {
                     let fh = binary.extract(fat_header.self)
                     BitType.checkType(machoPath: filePath, header: fh) { type, isByteSwapped in
                         Section.readSection(binary, type: type, isByteSwapped: isByteSwapped) { result in
-                            for var item in MachOData.shared.objcCategories {
-                                item.mapName()
-                                item.write()
-                            }
+                            running = false
                         }
                     }
                 }
             }
         }
     }
-    
 }
