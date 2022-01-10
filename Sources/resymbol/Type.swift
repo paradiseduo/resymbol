@@ -39,7 +39,7 @@ enum BitType {
     }
 }
 
-enum CDBindType: Int32 {
+enum BindType: Int32 {
     case REBASE_TYPE_POINTER = 1
     case REBASE_TYPE_TEXT_ABSOLUTE32 = 2
     case REBASE_TYPE_TEXT_PCREL32 = 3

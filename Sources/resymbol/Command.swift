@@ -102,6 +102,9 @@ struct Section {
         for i in 0..<count {
             resymbolGroup.enter()
             DispatchLimitQueue.shared.limit(queue: queueClass, group: resymbolGroup, count: ProcessInfo.processInfo.activeProcessorCount/2) {
+                defer {
+                    resymbolGroup.leave()
+                }
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 var offsetS = sub.rawValueBig().int16Replace()
@@ -118,7 +121,6 @@ struct Section {
                 oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
                 MachOData.shared.objcClasses.set(address: oc.isa.address.int16(), vaule: oc.classRO.name.className.value)
                 oc.write()
-                resymbolGroup.leave()
             }
         }
     }
@@ -129,6 +131,9 @@ struct Section {
         for i in 0..<count {
             categoryGroup.enter()
             DispatchLimitQueue.shared.limit(queue: queueCategory, group: categoryGroup, count: ProcessInfo.processInfo.activeProcessorCount) {
+                defer {
+                    categoryGroup.leave()
+                }
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 var offsetS = sub.rawValueBig().int16Replace()
@@ -136,7 +141,6 @@ struct Section {
                     offsetS -= offsetS%4
                 }
                 ObjcCategory.OCCG(binary, offset: offsetS).write()
-                categoryGroup.leave()
             }
         }
     }
@@ -147,6 +151,9 @@ struct Section {
         for i in 0..<count {
             resymbolGroup.enter()
             DispatchLimitQueue.shared.limit(queue: queueProtocol, group: resymbolGroup, count: ProcessInfo.processInfo.activeProcessorCount/2) {
+                defer {
+                    resymbolGroup.leave()
+                }
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 var offsetS = sub.rawValueBig().int16Replace()
@@ -154,7 +161,6 @@ struct Section {
                     offsetS -= offsetS%4
                 }
                 ObjcProtocol.OCPT(binary, offset: offsetS).write()
-                resymbolGroup.leave()
             }
         }
     }
@@ -175,6 +181,9 @@ struct Section {
         var cccccc = 0
         resymbolGroup.enter()
         queueDyld.async(group: resymbolGroup) {
+            defer {
+                resymbolGroup.leave()
+            }
             while index < end && !done {
                 let item = Int32(binary[index])
                 let immediate = item & BIND_IMMEDIATE_MASK
@@ -217,7 +226,7 @@ struct Section {
                     break
                 case BIND_OPCODE_SET_TYPE_IMM:
                     type = immediate
-                    printf("BIND_OPCODE: SET_TYPE_IMM,                   type = \(type) \(CDBindType.description(immediate))   index: \(cccccc)")
+                    printf("BIND_OPCODE: SET_TYPE_IMM,                   type = \(type) \(BindType.description(immediate))   index: \(cccccc)")
                     break
                 case BIND_OPCODE_SET_ADDEND_SLEB:
                     addend = binary.read_sleb128(index: &index, end: end)
@@ -268,7 +277,6 @@ struct Section {
                     break
                 }
             }
-            resymbolGroup.leave()
         }
     }
 }
