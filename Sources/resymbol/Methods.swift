@@ -68,10 +68,12 @@ struct Method {
         var index = 0
         while index < strArray.count {
             var type = ""
-            //用于引号配对
-            var count = 0
+            // 史上最恶心的结构体 ^{kinfo_proc={extern_proc=(?={?=^{proc}^{proc}}{timeval=qi})^{vmspace}^{sigacts}iciii*^viiIiI^v*II{itimerval={timeval=qi}{timeval=qi}}{timeval=qi}QQQi^{vnode}i^{vnode}iIIICCc[17c]^{pgrp}^{user}SS^{rusage}}{eproc=^{proc}^{session}{_pcred=[72c]^{ucred}IIIIi}{_ucred=iIs[16I]}{vmspace=i*[5i][3*]}iisii^{session}[8c]isssi[12c][4i]}}
+            var count = 0 //用于引号和括号配对
+            var count1 = 0 //用于{}配对
+            var count2 = 0 //用于[]配对
             for j in index..<strArray.count {
-                if strArray[j].rangeOfCharacter(from: CharacterSet.decimalDigits) != nil && (count == 0 || count == 2) {
+                if strArray[j].rangeOfCharacter(from: CharacterSet.decimalDigits) != nil && count % 2 == 0 && count1 == 0 && count2 == 0 {
                     index = j
                     if type.count > 0 {
                         typeArray.append(type)
@@ -81,6 +83,18 @@ struct Method {
                     type += strArray[j]
                     if strArray[j] == "\"" {
                         count += 1
+                    }
+                    if strArray[j] == "{" {
+                        count1 += 1
+                    }
+                    if strArray[j] == "}" {
+                        count1 -= 1
+                    }
+                    if strArray[j] == "[" {
+                        count2 += 1
+                    }
+                    if strArray[j] == "]" {
+                        count2 -= 1
                     }
                 }
             }

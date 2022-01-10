@@ -51,12 +51,33 @@ import Foundation
 // const is probably different from the previous modifiers.  You can have const int * const foo, or something like that.
 //   - r - const
 
+func grepStructName(_ type: String) -> String {
+    if type.hasPrefix("^{") || type.hasPrefix("{") {
+        let strArray = Array(type).map { c in
+            return String(c)
+        }
+        var index = 0
+        var name = ""
+        while index < strArray.count {
+            let item = strArray[index]
+            if item == "=" || item == "}" {
+                return name + "}"
+            } else {
+                name += item
+                index += 1
+            }
+        }
+    }
+    return type
+}
+
 func primitiveType(_ type: String) -> String {
     if type.count == 0 {
         return "MISSING_TYPE"
     }
     var result = ""
-    var strArray = Array(type).map { c in
+    let grepType = grepStructName(type)
+    var strArray = Array(grepType).map { c in
         return String(c)
     }
     // 合并同类项
