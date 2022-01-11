@@ -55,7 +55,7 @@ struct ObjcClass {
     }
     
     func write() {
-        var result = "@interface \(classRO.name.className.value) \(superClass.superClassName.count > 0 ? ": \(superClass.superClassName)" : "") //\(isa.address)\n"
+        var result = "@interface \(classRO.name.className.value) \(superClass.superClassName.count > 0 ? ": \(superClass.superClassName)" : "") //0x\(isa.address)\n"
         if let instanceVariables = classRO.ivars.instanceVariables {
             result += "{\n"
             for item in instanceVariables {

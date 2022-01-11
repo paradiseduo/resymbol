@@ -7,6 +7,8 @@
 
 import Foundation
 
+let RVA: UInt64 = 0x100000000
+
 class MachOData {
     static let shared = MachOData()
     var objcClasses = ObjcClassesDic()
@@ -89,8 +91,8 @@ class DyldDic {
     func set(address: UInt64, vaule newValue: String) {
         serialQueue.async(flags: .barrier) {
             var add = address
-            if address > 0x100000000 {
-                add = address - 0x100000000
+            if address > RVA {
+                add = address - RVA
             }
             self._data[String(add, radix: 16, uppercase: false)] = newValue
         }

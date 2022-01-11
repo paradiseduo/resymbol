@@ -44,7 +44,7 @@ struct ObjcProtocol {
     }
     
     func write() {
-        var result = "@protocol \(name.className.value) //\(isa.address) \n"
+        var result = "@protocol \(name.className.value) //0x\(isa.address) \n"
         
         if let properties = instanceProperties.properties {
             for item in properties {

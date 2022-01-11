@@ -1,6 +1,6 @@
 import Cocoa
 
-let DEBUG = false
+let DEBUG_FLAG = false
 
 var running = true
 

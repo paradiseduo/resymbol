@@ -8,15 +8,15 @@
 import Foundation
 
 public func printf(_ items: Any..., separator: String = " ", terminator: String = "\n") {
-    if DEBUG {
-        var i = 0
-        let j = items.count
-        for item in items {
-            print(item, terminator: i == j ? terminator: separator)
-            i += 1
-        }
-        print()
+#if DEBUG_FLAG
+    var i = 0
+    let j = items.count
+    for item in items {
+        print(item, terminator: i == j ? terminator: separator)
+        i += 1
     }
+    print()
+#endif
 }
 
 extension Data {
@@ -30,19 +30,11 @@ extension Data {
     }
     
     func rawValue() -> String {
-        return self.map {
-            String(format: "%02x", $0)
-        }.joined()
+        return self.map { String(format: "%02x", $0) }.joined()
     }
     
     func rawValueBig() -> String {
-        var arr = Array<String>()
-        let _ = self.map {
-            let s = String(format: "%02x", $0)
-            arr.append(s)
-            return s
-        }.joined()
-        return arr.reversed().joined()
+        return self.map { String(format: "%02x", $0) }.reversed().joined()
     }
     
     func read_uleb128(index: inout Int, end: Int) -> UInt64 {
@@ -120,7 +112,7 @@ extension String {
     }
     
     func int16Replace() -> Int {
-        return Int(self.replacingOccurrences(of: "00000001", with: ""), radix: 16) ?? 0
+        return Int((UInt64(self, radix: 16) ?? 0) & ~RVA)
     }
     
     func int16() -> Int {

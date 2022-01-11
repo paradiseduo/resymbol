@@ -36,7 +36,7 @@ struct ObjcCategory {
     }
     
     func write() {
-        var result = "@interface \(externalClassName ?? "")(\(name.className.value)) //\(name.name.address) \n"
+        var result = "@interface \(externalClassName ?? "")(\(name.className.value)) //0x\(name.name.address) \n"
         if let properties = instanceProperties.properties {
             for item in properties {
                 result += "\(item.serialization()) //0x\(item.name.name.address)\n"
