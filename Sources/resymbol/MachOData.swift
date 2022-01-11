@@ -35,10 +35,10 @@ class ObjcClassesDic {
 
     func get(address: String) -> String {
         serialQueue.sync {
-            let index = address.int16Replace()
-            return _data[index] ?? ""
+            return _data[address.int16Replace()] ?? ""
         }
     }
+    
     func set(address: Int, vaule newValue: String) {
         serialQueue.async(flags: .barrier) {
             self._data[address] = newValue
@@ -69,9 +69,29 @@ class DyldDic {
             return _data[address]
         }
     }
+    
+    func getReplace(address: String) -> String? {
+        serialQueue.sync {
+            if let s = _data[address] {
+                if s.contains("_$_") {
+                    let result = s.components(separatedBy: "_$_").last!
+                    if let swift = swift_demangle(result) {
+                        return swift
+                    }
+                    return result
+                }
+                return s
+            }
+            return nil
+        }
+    }
+    
     func set(address: UInt64, vaule newValue: String) {
         serialQueue.async(flags: .barrier) {
-            let add = address - 0x100000000
+            var add = address
+            if address > 0x100000000 {
+                add = address - 0x100000000
+            }
             self._data[String(add, radix: 16, uppercase: false)] = newValue
         }
     }

@@ -132,6 +132,14 @@ extension String {
         let raw = (Int(self, radix: 16) ?? 0)
         return raw + rva
     }
+    
+    func ltrim(_ chars: String) -> String {
+        if let index = self.firstIndex(where: {!chars.contains($0)}) {
+            return String(self[index..<self.endIndex])
+        } else {
+            return ""
+        }
+    }
 }
 
 extension String {

@@ -10,14 +10,20 @@ import MachO
 
 let byteSwappedOrder = NXByteOrder(rawValue: 0)
 
+// 先进行dyld绑定和protocol的dump
+let dyldGroup = DispatchGroup()
+let queueDyld = DispatchQueue(label: "com.Dyld", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueProtocol = DispatchQueue(label: "com.Protocol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+
+// 再进行class的dump，因为superclass依赖dyld的绑定结果
 let resymbolGroup = DispatchGroup()
 let queueClass = DispatchQueue(label: "com.Class", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueProtocol = DispatchQueue(label: "com.Protocol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueDyld = DispatchQueue(label: "com.Dyld", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
+// 再进行category的dump，因为category依赖于class list和dyld
 let categoryGroup = DispatchGroup()
 let queueCategory = DispatchQueue(label: "com.Category", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
+let activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount/2
 
 struct Section {
     
@@ -28,6 +34,7 @@ struct Section {
             return
         }
         var categorySections = [section_64]()
+        var classSections = [section_64]()
         let header = binary.extract(mach_header_64.self)
         var offset_machO = MemoryLayout.size(ofValue: header)
         var vmAddress = [UInt64]()
@@ -48,7 +55,7 @@ struct Section {
                         if sectionSegname.hasPrefix("__DATA") {
                             let sectname = String(rawCChar: section.sectname)
                             if sectname.contains("objc_classlist") || sectname.contains("objc_nlclslist") {
-                                handle__objc_classlist(binary, section: section)
+                                classSections.append(section)
                             } else if sectname.contains("objc_catlist") || sectname.contains("objc_nlcatlist"){
                                 categorySections.append(section)
                             } else if sectname.contains("objc_protolist") {
@@ -63,35 +70,46 @@ struct Section {
                 if isByteSwapped {
                     swap_dyld_info_command(&dylib, byteSwappedOrder)
                 }
-                bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.bind_off), end: Int(dylib.bind_off+dylib.bind_size))
-                bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.weak_bind_off), end: Int(dylib.weak_bind_off+dylib.weak_bind_size))
-                bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.lazy_bind_off), end: Int(dylib.lazy_bind_off+dylib.lazy_bind_size), isLazy: true)
+                queueDyld.async(group: dyldGroup) {
+                    bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.bind_off), end: Int(dylib.bind_off+dylib.bind_size))
+                }
+                queueDyld.async(group: dyldGroup) {
+                    bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.weak_bind_off), end: Int(dylib.weak_bind_off+dylib.weak_bind_size))
+                }
+                queueDyld.async(group: dyldGroup) {
+                    bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.lazy_bind_off), end: Int(dylib.lazy_bind_off+dylib.lazy_bind_size), isLazy: true)
+                }
             } else if loadCommand.cmd == LC_SYMTAB {
-                var symtab = binary.extract(symtab_command.self, offset: offset_machO)
-                if isByteSwapped {
-                    swap_symtab_command(&symtab, byteSwappedOrder)
-                }
-                let symbolTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.symoff), length: Int(symtab.nsyms*16)))!)
-                printf(symbolTable)
-                let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.stroff), length: Int(symtab.strsize)))!)
-                printf(stringTable)
+//                var symtab = binary.extract(symtab_command.self, offset: offset_machO)
+//                if isByteSwapped {
+//                    swap_symtab_command(&symtab, byteSwappedOrder)
+//                }
+//                let symbolTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.symoff), length: Int(symtab.nsyms*16)))!)
+//                printf(symbolTable)
+//                let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.stroff), length: Int(symtab.strsize)))!)
+//                printf(stringTable)
             } else if loadCommand.cmd == LC_DYSYMTAB {
-                var dysymtab = binary.extract(dysymtab_command.self, offset: offset_machO)
-                if isByteSwapped {
-                    swap_dysymtab_command(&dysymtab, byteSwappedOrder)
-                }
-                let indirectSymbolTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(dysymtab.indirectsymoff), length: Int(dysymtab.nindirectsyms*4)))!)
-                printf(indirectSymbolTable)
+//                var dysymtab = binary.extract(dysymtab_command.self, offset: offset_machO)
+//                if isByteSwapped {
+//                    swap_dysymtab_command(&dysymtab, byteSwappedOrder)
+//                }
+//                let indirectSymbolTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(dysymtab.indirectsymoff), length: Int(dysymtab.nindirectsyms*4)))!)
+//                printf(indirectSymbolTable)
             }
             offset_machO += Int(loadCommand.cmdsize)
         }
         
-        resymbolGroup.notify(queue: queueCategory) {
-            for section in categorySections {
-                handle__objc_catlist(binary, section: section)
+        dyldGroup.notify(queue: queueClass) {
+            for section in classSections {
+                handle__objc_classlist(binary, section: section)
             }
-            categoryGroup.notify(queue: DispatchQueue.main) {
-                handle(true)
+            resymbolGroup.notify(queue: queueCategory) {
+                for section in categorySections {
+                    handle__objc_catlist(binary, section: section)
+                }
+                categoryGroup.notify(queue: DispatchQueue.main) {
+                    handle(true)
+                }
             }
         }
     }
@@ -100,7 +118,7 @@ struct Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>3
         for i in 0..<count {
-            DispatchLimitQueue.shared.limit(queue: queueClass, group: resymbolGroup, count: ProcessInfo.processInfo.activeProcessorCount/2) {
+            DispatchLimitQueue.shared.limit(queue: queueClass, group: resymbolGroup, count: activeProcessorCount) {
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 var offsetS = sub.rawValueBig().int16Replace()
@@ -125,7 +143,7 @@ struct Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>3
         for i in 0..<count {
-            DispatchLimitQueue.shared.limit(queue: queueCategory, group: categoryGroup, count: ProcessInfo.processInfo.activeProcessorCount) {
+            DispatchLimitQueue.shared.limit(queue: queueCategory, group: categoryGroup, count: activeProcessorCount) {
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 var offsetS = sub.rawValueBig().int16Replace()
@@ -141,7 +159,7 @@ struct Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>3
         for i in 0..<count {
-            DispatchLimitQueue.shared.limit(queue: queueProtocol, group: resymbolGroup, count: ProcessInfo.processInfo.activeProcessorCount/2) {
+            DispatchLimitQueue.shared.limit(queue: queueProtocol, group: dyldGroup, count: activeProcessorCount) {
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 var offsetS = sub.rawValueBig().int16Replace()
@@ -167,99 +185,97 @@ struct Section {
         var index = start
         var address = vmAddress[0]
         var cccccc = 0
-        queueDyld.async(group: resymbolGroup) {
-            while index < end && !done {
-                let item = Int32(binary[index])
-                let immediate = item & BIND_IMMEDIATE_MASK
-                let opcode = item & BIND_OPCODE_MASK
-                index += 1
-                cccccc += 1
-                switch opcode {
-                case BIND_OPCODE_DONE:
-                    printf("BIND_OPCODE: DONE")
-                    if !isLazy {
-                        done = true
-                    }
-                    break
-                case BIND_OPCODE_SET_DYLIB_ORDINAL_IMM:
-                    libraryOrdinal = immediate
-                    printf("BIND_OPCODE: SET_DYLIB_ORDINAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
-                    break
-                case BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB:
-                    libraryOrdinal = Int32(binary.read_uleb128(index: &index, end: end))
-                    printf("BIND_OPCODE: SET_DYLIB_ORDINAL_ULEB,         libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
-                    break
-                case BIND_OPCODE_SET_DYLIB_SPECIAL_IMM:
-                    if immediate == 0 {
-                        libraryOrdinal = 0
-                    } else {
-                        libraryOrdinal = immediate | BIND_OPCODE_MASK
-                    }
-                    printf("BIND_OPCODE: SET_DYLIB_SPECIAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
-                    break
-                case BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM:
-                    var strData = Data()
-                    while binary[index] != 0 {
-                        strData.append(contentsOf: [binary[index]])
-                        index += 1
-                    }
-                    index += 1
-                    symbolName = String(data: strData, encoding: String.Encoding.utf8) ?? ""
-                    symbolFlags = immediate
-                    printf("BIND_OPCODE: SET_SYMBOL_TRAILING_FLAGS_IMM,  flags: \(String(format: "%02x", symbolFlags)), str = \(symbolName)  index: \(cccccc)")
-                    break
-                case BIND_OPCODE_SET_TYPE_IMM:
-                    type = immediate
-                    printf("BIND_OPCODE: SET_TYPE_IMM,                   type = \(type) \(BindType.description(immediate))   index: \(cccccc)")
-                    break
-                case BIND_OPCODE_SET_ADDEND_SLEB:
-                    addend = binary.read_sleb128(index: &index, end: end)
-                    printf("BIND_OPCODE: SET_ADDEND_SLEB,                addend = \(addend)  index: \(cccccc)")
-                    break
-                case BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB:
-                    segmentIndex = immediate
-                    let r = binary.read_uleb128(index: &index, end: end)
-                    printf("BIND_OPCODE: SET_SEGMENT_AND_OFFSET_ULEB,    segmentIndex: \(segmentIndex), offset: \(String(format: "0x%016llx", r))  index: \(cccccc)")
-                    address = (vmAddress[Int(segmentIndex)] &+ r)
-                    printf("    address = \(String(format: "0x%016llx", address))")
-                    break
-                case BIND_OPCODE_ADD_ADDR_ULEB:
-                    let r = binary.read_uleb128(index: &index, end: end)
-                    printf("BIND_OPCODE: ADD_ADDR_ULEB,                  \(address) += \(String(format: "0x%016llx", r))  index: \(cccccc)")
-                    address &+= r
-                    break
-                case BIND_OPCODE_DO_BIND:
-                    printf("BIND_OPCODE: DO_BIND")
-                    MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
-                    bindCount += 1
-                    address &+= ptrSize
-                    break
-                case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
-                    let r = binary.read_uleb128(index: &index, end: end)
-                    printf("BIND_OPCODE: DO_BIND_ADD_ADDR_ULEB,          \(address) += \(ptrSize) + \(String(format: "%016llx", r))  index: \(cccccc)")
-                    MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
-                    bindCount += 1
-                    address &+= (ptrSize &+ r)
-                    break
-                case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
-                    printf("BIND_OPCODE: DO_BIND_ADD_ADDR_IMM_SCALED,    \(address) += \(ptrSize) * \((ptrSize * UInt64(immediate)))  index: \(cccccc)")
-                    MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
-                    bindCount += 1
-                    address &+= (ptrSize &+ (ptrSize * UInt64(immediate)))
-                    break
-                case BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB:
-                    let count = binary.read_uleb128(index: &index, end: end)
-                    let skip = binary.read_uleb128(index: &index, end: end)
-                    printf("BIND_OPCODE: DO_BIND_ULEB_TIMES_SKIPPING_ULEB, count: \(String(format: "%016llx", count)), skip: \(String(format: "%016llx", skip))  index: \(cccccc)")
-                    for _ in 0 ..< count {
-                        MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
-                        address &+= (ptrSize &+ skip)
-                    }
-                    bindCount += count
-                    break
-                default:
-                    break
+        while index < end && !done {
+            let item = Int32(binary[index])
+            let immediate = item & BIND_IMMEDIATE_MASK
+            let opcode = item & BIND_OPCODE_MASK
+            index += 1
+            cccccc += 1
+            switch opcode {
+            case BIND_OPCODE_DONE:
+                printf("BIND_OPCODE: DONE")
+                if !isLazy {
+                    done = true
                 }
+                break
+            case BIND_OPCODE_SET_DYLIB_ORDINAL_IMM:
+                libraryOrdinal = immediate
+                printf("BIND_OPCODE: SET_DYLIB_ORDINAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
+                break
+            case BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB:
+                libraryOrdinal = Int32(binary.read_uleb128(index: &index, end: end))
+                printf("BIND_OPCODE: SET_DYLIB_ORDINAL_ULEB,         libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
+                break
+            case BIND_OPCODE_SET_DYLIB_SPECIAL_IMM:
+                if immediate == 0 {
+                    libraryOrdinal = 0
+                } else {
+                    libraryOrdinal = immediate | BIND_OPCODE_MASK
+                }
+                printf("BIND_OPCODE: SET_DYLIB_SPECIAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
+                break
+            case BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM:
+                var strData = Data()
+                while binary[index] != 0 {
+                    strData.append(contentsOf: [binary[index]])
+                    index += 1
+                }
+                index += 1
+                symbolName = String(data: strData, encoding: String.Encoding.utf8) ?? ""
+                symbolFlags = immediate
+                printf("BIND_OPCODE: SET_SYMBOL_TRAILING_FLAGS_IMM,  flags: \(String(format: "%02x", symbolFlags)), str = \(symbolName)  index: \(cccccc)")
+                break
+            case BIND_OPCODE_SET_TYPE_IMM:
+                type = immediate
+                printf("BIND_OPCODE: SET_TYPE_IMM,                   type = \(type) \(BindType.description(immediate))   index: \(cccccc)")
+                break
+            case BIND_OPCODE_SET_ADDEND_SLEB:
+                addend = binary.read_sleb128(index: &index, end: end)
+                printf("BIND_OPCODE: SET_ADDEND_SLEB,                addend = \(addend)  index: \(cccccc)")
+                break
+            case BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB:
+                segmentIndex = immediate
+                let r = binary.read_uleb128(index: &index, end: end)
+                printf("BIND_OPCODE: SET_SEGMENT_AND_OFFSET_ULEB,    segmentIndex: \(segmentIndex), offset: \(String(format: "0x%016llx", r))  index: \(cccccc)")
+                address = (vmAddress[Int(segmentIndex)] &+ r)
+                printf("    address = \(String(format: "0x%016llx", address))")
+                break
+            case BIND_OPCODE_ADD_ADDR_ULEB:
+                let r = binary.read_uleb128(index: &index, end: end)
+                printf("BIND_OPCODE: ADD_ADDR_ULEB,                  \(address) += \(String(format: "0x%016llx", r))  index: \(cccccc)")
+                address &+= r
+                break
+            case BIND_OPCODE_DO_BIND:
+                printf("BIND_OPCODE: DO_BIND")
+                MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
+                bindCount += 1
+                address &+= ptrSize
+                break
+            case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
+                let r = binary.read_uleb128(index: &index, end: end)
+                printf("BIND_OPCODE: DO_BIND_ADD_ADDR_ULEB,          \(address) += \(ptrSize) + \(String(format: "%016llx", r))  index: \(cccccc)")
+                MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
+                bindCount += 1
+                address &+= (ptrSize &+ r)
+                break
+            case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
+                printf("BIND_OPCODE: DO_BIND_ADD_ADDR_IMM_SCALED,    \(address) += \(ptrSize) * \((ptrSize * UInt64(immediate)))  index: \(cccccc)")
+                MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
+                bindCount += 1
+                address &+= (ptrSize &+ (ptrSize * UInt64(immediate)))
+                break
+            case BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB:
+                let count = binary.read_uleb128(index: &index, end: end)
+                let skip = binary.read_uleb128(index: &index, end: end)
+                printf("BIND_OPCODE: DO_BIND_ULEB_TIMES_SKIPPING_ULEB, count: \(String(format: "%016llx", count)), skip: \(String(format: "%016llx", skip))  index: \(cccccc)")
+                for _ in 0 ..< count {
+                    MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
+                    address &+= (ptrSize &+ skip)
+                }
+                bindCount += count
+                break
+            default:
+                break
             }
         }
     }

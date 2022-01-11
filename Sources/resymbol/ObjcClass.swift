@@ -7,9 +7,20 @@
 
 import Foundation
 
+struct ObjcSuperClass {
+    let superClass: DataStruct
+    let superClassName: String
+    
+    static func OSC(_ binary: Data, offset: Int) -> ObjcSuperClass {
+        let superClass = DataStruct.data(binary, offset: offset, length: 8)
+        let superClassName = MachOData.shared.dylbMap.getReplace(address: superClass.address.ltrim("0")) ?? ""
+        return ObjcSuperClass(superClass: superClass, superClassName: superClassName)
+    }
+}
+
 struct ObjcClass {
     let isa: DataStruct
-    let superClass: DataStruct
+    let superClass: ObjcSuperClass
     let cache: DataStruct
     let cacheMask: DataStruct
     let cacheOccupied: DataStruct
@@ -23,7 +34,7 @@ struct ObjcClass {
     
     static func OC(_ binary: Data, offset: Int) -> ObjcClass {
         let isa = DataStruct.data(binary, offset: offset, length: 8)
-        let superClass = DataStruct.data(binary, offset: offset+8, length: 8)
+        let superClass = ObjcSuperClass.OSC(binary, offset: offset+8)
         let cache = DataStruct.data(binary, offset: offset+16, length: 8)
         let cacheMask = DataStruct.data(binary, offset: offset+24, length: 4)
         let cacheOccupied = DataStruct.data(binary, offset: offset+28, length: 4)
@@ -38,13 +49,13 @@ struct ObjcClass {
             offsetCD -= offsetCD%4
         }
         
-        let classRO = ObjcClassRO.OCRO(binary, offset: offsetCD)
-        
+        let classRO = ObjcClassRO.OCRO(binary, offset: offsetCD, isSwiftClass: isSwiftClass)
+                
         return ObjcClass(isa: isa, superClass: superClass, cache: cache, cacheMask: cacheMask, cacheOccupied: cacheOccupied, classData: classData, reserved1: reserved1, reserved2: reserved2, reserved3: reserved3, classRO: classRO, classMethods: nil, isSwiftClass: isSwiftClass)
     }
     
     func write() {
-        var result = "@interface \(classRO.name.className.value) //\(isa.address)\n"
+        var result = "@interface \(classRO.name.className.value) \(superClass.superClassName.count > 0 ? ": \(superClass.superClassName)" : "") //\(isa.address)\n"
         if let instanceVariables = classRO.ivars.instanceVariables {
             result += "{\n"
             for item in instanceVariables {
@@ -86,7 +97,7 @@ struct ObjcClassRO {
     let weakIvarLayout: DataStruct
     let baseProperties: Properties
     
-    static func OCRO(_ binary: Data, offset: Int) -> ObjcClassRO {
+    static func OCRO(_ binary: Data, offset: Int, isSwiftClass: Bool) -> ObjcClassRO {
         var typeOffset = 0
         let flags = Flags.flags(binary, startOffset: offset)
         let instanceStart = DataStruct.data(binary, offset: offset+4, length: 4)
