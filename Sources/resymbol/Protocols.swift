@@ -38,4 +38,18 @@ struct Protocols {
             return Protocols(baseProtocol: baseProtocol, count: nil, protocols: nil)
         }
     }
+    
+    func serialization() -> String {
+        var protocolString = ""
+        if let pros = protocols {
+            protocolString += "<"
+            for item in pros {
+                if let p = MachOData.shared.objcProtocols.get(address: item.pointer.value.int16Replace()) {
+                    protocolString += p + ", "
+                }
+            }
+            protocolString = protocolString.rtrim(", ") + ">"
+        }
+        return protocolString
+    }
 }

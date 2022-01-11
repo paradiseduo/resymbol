@@ -15,7 +15,7 @@ let dyldGroup = DispatchGroup()
 let queueDyld = DispatchQueue(label: "com.Dyld", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 let queueProtocol = DispatchQueue(label: "com.Protocol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
-// 再进行class的dump，因为superclass依赖dyld的绑定结果
+// 再进行class的dump，因为superclass依赖dyld的绑定结果和protocol
 let resymbolGroup = DispatchGroup()
 let queueClass = DispatchQueue(label: "com.Class", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
@@ -134,7 +134,7 @@ struct Section {
                 }
                 oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
                 MachOData.shared.objcClasses.set(address: oc.isa.address.int16(), vaule: oc.classRO.name.className.value)
-                oc.write()
+                oc.serialization()
             }
         }
     }
@@ -150,7 +150,7 @@ struct Section {
                 if offsetS % 4 != 0 {
                     offsetS -= offsetS%4
                 }
-                ObjcCategory.OCCG(binary, offset: offsetS).write()
+                ObjcCategory.OCCG(binary, offset: offsetS).serialization()
             }
         }
     }
@@ -166,7 +166,9 @@ struct Section {
                 if offsetS % 4 != 0 {
                     offsetS -= offsetS%4
                 }
-                ObjcProtocol.OCPT(binary, offset: offsetS).write()
+                let pr = ObjcProtocol.OCPT(binary, offset: offsetS)
+                MachOData.shared.objcProtocols.set(address: pr.isa.address.int16(), vaule: pr.name.className.value)
+                pr.serialization()
             }
         }
     }

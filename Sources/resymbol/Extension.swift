@@ -129,7 +129,15 @@ extension String {
         if let index = self.firstIndex(where: {!chars.contains($0)}) {
             return String(self[index..<self.endIndex])
         } else {
-            return ""
+            return self
+        }
+    }
+    
+    func rtrim(_ chars: String) -> String {
+        if let index = self.lastIndex(where: {!chars.contains($0)}) {
+            return String(self[self.startIndex...index])
+        } else {
+            return self
         }
     }
 }

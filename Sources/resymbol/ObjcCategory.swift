@@ -35,8 +35,8 @@ struct ObjcCategory {
         return ObjcCategory(name: name, classs: classs, instanceMethods: instanceMethods, classMethods: classMethods, protocols: protocols, instanceProperties: instanceProperties, v7: v7, v8: v8, externalClassName: externalClassName)
     }
     
-    func write() {
-        var result = "@interface \(externalClassName ?? "")(\(name.className.value)) //0x\(name.name.address) \n"
+    func serialization() {
+        var result = "@interface \(externalClassName ?? "")(\(name.className.value)) \(protocols.serialization()) //0x\(name.name.address) \n"
         if let properties = instanceProperties.properties {
             for item in properties {
                 result += "\(item.serialization()) //0x\(item.name.name.address)\n"
@@ -51,11 +51,6 @@ struct ObjcCategory {
         if let methods = classMethods.methods {
             for item in methods {
                 result += "\(item.serialization(isClass: true)) //0x\(item.implementation.value) \n"
-            }
-        }
-        if let methods = protocols.protocols {
-            for item in methods {
-                result += "\(item.pointer.value) //0x\(item.pointer.address)\n"
             }
         }
         result += "@end\n"

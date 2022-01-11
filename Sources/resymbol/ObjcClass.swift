@@ -54,8 +54,8 @@ struct ObjcClass {
         return ObjcClass(isa: isa, superClass: superClass, cache: cache, cacheMask: cacheMask, cacheOccupied: cacheOccupied, classData: classData, reserved1: reserved1, reserved2: reserved2, reserved3: reserved3, classRO: classRO, classMethods: nil, isSwiftClass: isSwiftClass)
     }
     
-    func write() {
-        var result = "@interface \(classRO.name.className.value) \(superClass.superClassName.count > 0 ? ": \(superClass.superClassName)" : "") //0x\(isa.address)\n"
+    func serialization() {
+        var result = "@interface \(classRO.name.className.value) \(superClass.superClassName.count > 0 ? ": \(superClass.superClassName)" : "") \(classRO.baseProtocol.serialization()) //0x\(isa.address)\n"
         if let instanceVariables = classRO.ivars.instanceVariables {
             result += "{\n"
             for item in instanceVariables {

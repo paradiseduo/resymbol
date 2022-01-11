@@ -43,7 +43,7 @@ struct ObjcProtocol {
         return ObjcProtocol(isa: isa, name: name, protocols: protocols, instanceMethods: instanceMethods, classMethods: classMethods, optionalInstanceMethods: optionalInstanceMethods, optionalClassMethods: optionalClassMethods, instanceProperties: instanceProperties, size: size, flag: flag, extendedMethodTypes: extendedMethodTypes)
     }
     
-    func write() {
+    func serialization() {
         var result = "@protocol \(name.className.value) //0x\(isa.address) \n"
         
         if let properties = instanceProperties.properties {
