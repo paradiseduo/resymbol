@@ -19,6 +19,7 @@ struct ObjcClass {
     let reserved3: DataStruct
     let classRO: ObjcClassRO
     var classMethods: Methods?
+    let isSwiftClass: Bool
     
     static func OC(_ binary: Data, offset: Int) -> ObjcClass {
         let isa = DataStruct.data(binary, offset: offset, length: 8)
@@ -30,6 +31,7 @@ struct ObjcClass {
         let reserved1 = DataStruct.data(binary, offset: offset+40, length: 8)
         let reserved2 = DataStruct.data(binary, offset: offset+48, length: 8)
         let reserved3 = DataStruct.data(binary, offset: offset+56, length: 8)
+        let isSwiftClass = (classData.value.int16Replace()&0x1 != 0)
         
         var offsetCD = classData.value.int16Replace()
         if offsetCD % 4 != 0 {
@@ -38,12 +40,18 @@ struct ObjcClass {
         
         let classRO = ObjcClassRO.OCRO(binary, offset: offsetCD)
         
-        return ObjcClass(isa: isa, superClass: superClass, cache: cache, cacheMask: cacheMask, cacheOccupied: cacheOccupied, classData: classData, reserved1: reserved1, reserved2: reserved2, reserved3: reserved3, classRO: classRO, classMethods: nil)
+        return ObjcClass(isa: isa, superClass: superClass, cache: cache, cacheMask: cacheMask, cacheOccupied: cacheOccupied, classData: classData, reserved1: reserved1, reserved2: reserved2, reserved3: reserved3, classRO: classRO, classMethods: nil, isSwiftClass: isSwiftClass)
     }
     
     func write() {
         var result = "@interface \(classRO.name.className.value) //\(isa.address)\n"
-
+        if let instanceVariables = classRO.ivars.instanceVariables {
+            result += "{\n"
+            for item in instanceVariables {
+                result += "\(item.serialization()) //0x\(item.offset.address)\n"
+            }
+            result += "}\n"
+        }
         if let properties = classRO.baseProperties.properties {
             for item in properties {
                 result += "\(item.serialization()) //0x\(item.name.name.address)\n"

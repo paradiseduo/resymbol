@@ -7,10 +7,32 @@
 
 import Foundation
 
+struct InstanceVariableName {
+    let name: DataStruct
+    let instanceVariableName: DataStruct
+    
+    static func instanceVariableName(_ binary: Data, offset: Int) -> InstanceVariableName {
+        let name = DataStruct.data(binary, offset: offset, length: 8)
+        let instanceVariableName = DataStruct.textData(binary, offset: name.value.int16Replace())
+        return InstanceVariableName(name: name, instanceVariableName: instanceVariableName)
+    }
+}
+
+struct InstanceVariableTypes {
+    let types: DataStruct
+    let instanceVariableTypes: DataStruct
+    
+    static func instanceVariableTypes(_ binary: Data, offset: Int) -> InstanceVariableTypes {
+        let types = DataStruct.data(binary, offset: offset, length: 8)
+        let instanceVariableTypes = DataStruct.textData(binary, offset: types.value.int16Replace())
+        return InstanceVariableTypes(types: types, instanceVariableTypes: instanceVariableTypes)
+    }
+}
+
 struct InstanceVariable {
     let offset: DataStruct
-    let name: DataStruct
-    let types: DataStruct
+    let name: InstanceVariableName
+    let types: InstanceVariableTypes
     let alignment: DataStruct
     let alignSizement: DataStruct
     
@@ -20,9 +42,9 @@ struct InstanceVariable {
         for _ in 0..<count {
             let ioffset = DataStruct.data(binary, offset: offSet, length: 8)
             offSet += 8
-            let iName = DataStruct.data(binary, offset: offSet, length: 8)
+            let iName = InstanceVariableName.instanceVariableName(binary, offset: offSet)
             offSet += 8
-            let iType = DataStruct.data(binary, offset: offSet, length: 8)
+            let iType = InstanceVariableTypes.instanceVariableTypes(binary, offset: offSet)
             offSet += 8
             let iAli = DataStruct.data(binary, offset: offSet, length: 4)
             offSet += 4
@@ -31,6 +53,10 @@ struct InstanceVariable {
             result.append(InstanceVariable(offset: ioffset, name: iName, types: iType, alignment: iAli, alignSizement: iAliSize))
         }
         return result
+    }
+    
+    func serialization() -> String {
+        return "\t\(primitiveType(types.instanceVariableTypes.value)) \(name.instanceVariableName.value);"
     }
 }
 

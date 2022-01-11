@@ -100,11 +100,7 @@ struct Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>3
         for i in 0..<count {
-            resymbolGroup.enter()
             DispatchLimitQueue.shared.limit(queue: queueClass, group: resymbolGroup, count: ProcessInfo.processInfo.activeProcessorCount/2) {
-                defer {
-                    resymbolGroup.leave()
-                }
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 var offsetS = sub.rawValueBig().int16Replace()
@@ -129,11 +125,7 @@ struct Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>3
         for i in 0..<count {
-            categoryGroup.enter()
             DispatchLimitQueue.shared.limit(queue: queueCategory, group: categoryGroup, count: ProcessInfo.processInfo.activeProcessorCount) {
-                defer {
-                    categoryGroup.leave()
-                }
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 var offsetS = sub.rawValueBig().int16Replace()
@@ -149,11 +141,7 @@ struct Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>3
         for i in 0..<count {
-            resymbolGroup.enter()
             DispatchLimitQueue.shared.limit(queue: queueProtocol, group: resymbolGroup, count: ProcessInfo.processInfo.activeProcessorCount/2) {
-                defer {
-                    resymbolGroup.leave()
-                }
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 var offsetS = sub.rawValueBig().int16Replace()
@@ -179,11 +167,7 @@ struct Section {
         var index = start
         var address = vmAddress[0]
         var cccccc = 0
-        resymbolGroup.enter()
         queueDyld.async(group: resymbolGroup) {
-            defer {
-                resymbolGroup.leave()
-            }
             while index < end && !done {
                 let item = Int32(binary[index])
                 let immediate = item & BIND_IMMEDIATE_MASK
