@@ -29,6 +29,13 @@ extension Data {
         }
     }
     
+    func readValue<Type>(_ offset: Int) -> Type? {
+        let val:Type? = self.withUnsafeBytes { (ptr:UnsafeRawBufferPointer) -> Type? in
+            return ptr.baseAddress?.advanced(by: offset).load(as: Type.self);
+        }
+        return val;
+    }
+    
     func rawValue() -> String {
         return self.map { String(format: "%02x", $0) }.joined()
     }
@@ -117,6 +124,13 @@ extension String {
     
     func int16() -> Int {
         return Int(self, radix: 16) ?? 0
+    }
+    
+    func int16Subtraction() -> Int {
+        if let i = Int(self, radix: 16) {
+            return i | ~0xFFFFFFFF
+        }
+        return 0
     }
     
     func int16RVA() -> Int {

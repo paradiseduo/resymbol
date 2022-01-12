@@ -47,7 +47,7 @@ struct Section {
                 }
                 let segmentSegname = String(rawCChar: segment.segname)
                 vmAddress.append(segment.vmaddr)
-                if segmentSegname == "__DATA_CONST" || segmentSegname == "__DATA" {
+                if segmentSegname.contains("__DATA") || segmentSegname.contains("__TEXT") {
                     var offset_segment = offset_machO + 0x48
                     for _ in 0..<segment.nsects {
                         let section = binary.extract(section_64.self, offset: offset_segment)
@@ -60,6 +60,13 @@ struct Section {
                                 categorySections.append(section)
                             } else if sectname.contains("objc_protolist") {
                                 handle__objc_protolist(binary, section: section)
+                            }
+                        } else if sectionSegname.hasPrefix("__TEXT") {
+                            let sectname = String(rawCChar: section.sectname)
+                            if sectname == "__swift5_proto" {
+                                handle__swift5_proto(binary, section: section)
+                            } else if sectname == "__swift5_protos" {
+                                handle__swift5_protos(binary, section: section)
                             }
                         }
                         offset_segment += 0x50
@@ -153,6 +160,37 @@ struct Section {
                 ObjcCategory.OCCG(binary, offset: offsetS).serialization()
             }
         }
+    }
+    
+    private static func handle__swift5_protos(_ binary: Data, section: section_64) {
+        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        let count = d.count>>2
+        for i in 0..<count {
+            let location = i<<2
+            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
+            var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
+            if offsetS % 4 != 0 {
+                offsetS -= offsetS%4
+            }
+            print(ProtocolDescriptor.PD(binary, offset: &offsetS))
+        }
+    }
+    
+    private static func handle__swift5_proto(_ binary: Data, section: section_64) {
+//        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+//        let count = d.count>>2
+//        print(section)
+//        var offset = Int(section.offset)
+//        for i in 0..<count {
+//            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<2, length: 4))!)
+//
+//        }
+        
+//        var index = Int(section.offset)
+//        let end = Int(section.offset)+Int(section.size)
+//        while index < end {
+//            print(SwiftProtocol.SP(binary, offset: &index))
+//        }
     }
     
     private static func handle__objc_protolist(_ binary: Data, section: section_64) {
