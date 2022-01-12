@@ -128,7 +128,11 @@ extension String {
     
     func int16Subtraction() -> Int {
         if let i = Int(self, radix: 16) {
-            return i | ~0xFFFFFFFF
+            if self.starts(with: "0") {
+                return i
+            } else {
+                return i | ~0xFFFFFFFF
+            }
         }
         return 0
     }
