@@ -11,9 +11,9 @@ let RVA: UInt64 = 0x100000000
 
 class MachOData {
     static let shared = MachOData()
-    var objcClasses = ObjcClassesDic()
-    var dylbMap = DyldDic()
-    var objcProtocols = ObjcProtocolDic()
+    var objcClasses = SyncDictionary("ObjcClassesDicSyncQueue")
+    var dylbMap = SyncDictionary("DyldDicSyncQueue")
+    var objcProtocols = SyncDictionary("ObjcProtocolDicSyncQueue")
     
     private init() {}
 }

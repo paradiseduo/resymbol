@@ -140,7 +140,7 @@ struct Section {
                     metaClassOffset -= metaClassOffset%4
                 }
                 oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
-                MachOData.shared.objcClasses.set(address: oc.isa.address.int16(), vaule: oc.classRO.name.className.value)
+                MachOData.shared.objcClasses.set(key: oc.isa.address.int16(), vaule: oc.classRO.name.className.value)
                 oc.serialization()
             }
         }
@@ -205,7 +205,7 @@ struct Section {
                     offsetS -= offsetS%4
                 }
                 let pr = ObjcProtocol.OCPT(binary, offset: offsetS)
-                MachOData.shared.objcProtocols.set(address: pr.isa.address.int16(), vaule: pr.name.className.value)
+                MachOData.shared.objcProtocols.set(key: pr.isa.address.int16(), vaule: pr.name.className.value)
                 pr.serialization()
             }
         }

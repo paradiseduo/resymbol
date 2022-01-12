@@ -30,7 +30,7 @@ struct ObjcCategory {
         let v8 = DataStruct.data(binary, offset: offset+56, length: 8)
         
         let key = String(name.name.address.int16()+8, radix: 16, uppercase: false)
-        let externalClassName = MachOData.shared.dylbMap.getReplace(address: key) ?? MachOData.shared.objcClasses.get(address: classs.value)
+        let externalClassName = MachOData.shared.dylbMap.getReplace(address: key) ?? (MachOData.shared.objcClasses.get(classs.value.int16Replace()) as? String ?? "")
         
         return ObjcCategory(name: name, classs: classs, instanceMethods: instanceMethods, classMethods: classMethods, protocols: protocols, instanceProperties: instanceProperties, v7: v7, v8: v8, externalClassName: externalClassName)
     }

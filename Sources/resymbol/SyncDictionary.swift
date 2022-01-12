@@ -7,12 +7,16 @@
 
 import Foundation
 
-class ObjcClassesDic {
-    let serialQueue = DispatchQueue(label: "ObjcClassesDicSyncQueue", attributes: .concurrent)
-
-    private var _data = [Int: String]()
-
-    var data: [Int: String] {
+class SyncDictionary {
+    let serialQueue: DispatchQueue
+    
+    init(_ label: String) {
+        serialQueue = DispatchQueue(label: label, attributes: .concurrent)
+    }
+    
+    private var _data = [AnyHashable: Any]()
+    
+    var data: [AnyHashable: Any] {
         get {
             return serialQueue.sync {
                 return _data
@@ -24,47 +28,24 @@ class ObjcClassesDic {
             }
         }
     }
-
-    func get(address: String) -> String {
+    
+    func get(_ key: AnyHashable) -> Any? {
         serialQueue.sync {
-            return _data[address.int16Replace()] ?? ""
+            return _data[key]
         }
     }
     
-    func set(address: Int, vaule newValue: String) {
+    func set(key: AnyHashable, vaule newValue: Any) {
         serialQueue.async(flags: .barrier) {
-            self._data[address] = newValue
+            self._data[key] = newValue
         }
     }
 }
 
-class DyldDic {
-    let serialQueue = DispatchQueue(label: "DyldDicSyncQueue", attributes: .concurrent)
-
-    private var _data = [String: String]()
-
-    var data: [String: String] {
-        get {
-            return serialQueue.sync {
-                return _data
-            }
-        }
-        set {
-            serialQueue.async(flags: .barrier) {
-                self._data = newValue
-            }
-        }
-    }
-
-    func get(address: String) -> String? {
-        serialQueue.sync {
-            return _data[address]
-        }
-    }
-    
+extension SyncDictionary {
     func getReplace(address: String) -> String? {
         serialQueue.sync {
-            if let s = _data[address] {
+            if let s = _data[address] as? String {
                 if s.contains("_$_") {
                     let result = s.components(separatedBy: "_$_").last!
                     if let swift = swift_demangle(result) {
@@ -85,38 +66,6 @@ class DyldDic {
                 add = address - RVA
             }
             self._data[String(add, radix: 16, uppercase: false)] = newValue
-        }
-    }
-}
-
-
-class ObjcProtocolDic {
-    let serialQueue = DispatchQueue(label: "ObjcProtocolDicSyncQueue", attributes: .concurrent)
-
-    private var _data = [Int: String]()
-
-    var data: [Int: String] {
-        get {
-            return serialQueue.sync {
-                return _data
-            }
-        }
-        set {
-            serialQueue.async(flags: .barrier) {
-                self._data = newValue
-            }
-        }
-    }
-
-    func get(address: Int) -> String? {
-        serialQueue.sync {
-            return _data[address]
-        }
-    }
-    
-    func set(address: Int, vaule newValue: String) {
-        serialQueue.async(flags: .barrier) {
-            self._data[address] = newValue
         }
     }
 }
