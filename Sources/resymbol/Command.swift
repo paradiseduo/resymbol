@@ -13,7 +13,9 @@ let byteSwappedOrder = NXByteOrder(rawValue: 0)
 // 先进行dyld绑定和protocol的dump
 let dyldGroup = DispatchGroup()
 let queueDyld = DispatchQueue(label: "com.Dyld", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSymbol = DispatchQueue(label: "com.Symbol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 let queueProtocol = DispatchQueue(label: "com.Protocol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSwiftProtocol = DispatchQueue(label: "com.Swift.Protocol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
 // 再进行class的dump，因为superclass依赖dyld的绑定结果和protocol
 let resymbolGroup = DispatchGroup()
@@ -33,8 +35,12 @@ struct Section {
             handle(false)
             return
         }
+        
         var categorySections = [section_64]()
         var classSections = [section_64]()
+        var swiftProtoSection: section_64?
+        var needSymbol = false
+        
         let header = binary.extract(mach_header_64.self)
         var offset_machO = MemoryLayout.size(ofValue: header)
         var vmAddress = [UInt64]()
@@ -47,6 +53,9 @@ struct Section {
                 }
                 let segmentSegname = String(rawCChar: segment.segname)
                 vmAddress.append(segment.vmaddr)
+                if segmentSegname == "" {
+                    needSymbol = true
+                }
                 if segmentSegname.contains("__DATA") || segmentSegname.contains("__TEXT") {
                     var offset_segment = offset_machO + 0x48
                     for _ in 0..<segment.nsects {
@@ -64,9 +73,11 @@ struct Section {
                         } else if sectionSegname.hasPrefix("__TEXT") {
                             let sectname = String(rawCChar: section.sectname)
                             if sectname == "__swift5_proto" {
-                                handle__swift5_proto(binary, section: section)
+                                swiftProtoSection = section
                             } else if sectname == "__swift5_protos" {
                                 handle__swift5_protos(binary, section: section)
+                            } else if sectname == "__swift5_types" {
+                                handle__swift5_types(binary, section: section)
                             }
                         }
                         offset_segment += 0x50
@@ -87,14 +98,18 @@ struct Section {
                     bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.lazy_bind_off), end: Int(dylib.lazy_bind_off+dylib.lazy_bind_size), isLazy: true)
                 }
             } else if loadCommand.cmd == LC_SYMTAB {
-//                var symtab = binary.extract(symtab_command.self, offset: offset_machO)
-//                if isByteSwapped {
-//                    swap_symtab_command(&symtab, byteSwappedOrder)
-//                }
-//                let symbolTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.symoff), length: Int(symtab.nsyms*16)))!)
-//                printf(symbolTable)
-//                let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.stroff), length: Int(symtab.strsize)))!)
-//                printf(stringTable)
+                if needSymbol {
+                    var symtab = binary.extract(symtab_command.self, offset: offset_machO)
+                    if isByteSwapped {
+                        swap_symtab_command(&symtab, byteSwappedOrder)
+                    }
+                    queueSymbol.async(group: dyldGroup) {
+                        handle_string_table(binary, symtab: symtab)
+                    }
+                    queueSymbol.async(group: dyldGroup) {
+                        handle_symbol_table(binary, symtab: symtab)
+                    }
+                }
             } else if loadCommand.cmd == LC_DYSYMTAB {
 //                var dysymtab = binary.extract(dysymtab_command.self, offset: offset_machO)
 //                if isByteSwapped {
@@ -109,6 +124,9 @@ struct Section {
         dyldGroup.notify(queue: queueClass) {
             for section in classSections {
                 handle__objc_classlist(binary, section: section)
+            }
+            if let section = swiftProtoSection {
+                handle__swift5_proto(binary, section: section)
             }
             resymbolGroup.notify(queue: queueCategory) {
                 for section in categorySections {
@@ -132,16 +150,18 @@ struct Section {
                 if offsetS % 4 != 0 {
                     offsetS -= offsetS%4
                 }
-                var oc = ObjcClass.OC(binary, offset: offsetS)
-                
-                let isa = DataStruct.data(binary, offset: offsetS, length: 8)
-                var metaClassOffset = isa.value.int16Replace()
-                if metaClassOffset % 4 != 0 {
-                    metaClassOffset -= metaClassOffset%4
+                if offsetS > 0 {
+                    var oc = ObjcClass.OC(binary, offset: offsetS)
+                    
+                    let isa = DataStruct.data(binary, offset: offsetS, length: 8)
+                    var metaClassOffset = isa.value.int16Replace()
+                    if metaClassOffset % 4 != 0 {
+                        metaClassOffset -= metaClassOffset%4
+                    }
+                    oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
+                    MachOData.shared.objcClasses.set(key: oc.isa.address.int16(), vaule: oc.classRO.name.className.value)
+                    oc.serialization()
                 }
-                oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
-                MachOData.shared.objcClasses.set(key: oc.isa.address.int16(), vaule: oc.classRO.name.className.value)
-                oc.serialization()
             }
         }
     }
@@ -166,31 +186,45 @@ struct Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>2
         for i in 0..<count {
+            DispatchLimitQueue.shared.limit(queue: queueProtocol, group: dyldGroup, count: activeProcessorCount) {
+                let location = i<<2
+                let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
+                var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
+                if offsetS % 4 != 0 {
+                    offsetS -= offsetS%4
+                }
+                let p = ProtocolDescriptor.PD(binary, offset: offsetS)
+                MachOData.shared.swiftProtocols.set(key: offsetS, vaule: p.name.swiftName.value)
+            }
+        }
+    }
+    
+    private static func handle__swift5_proto(_ binary: Data, section: section_64) {
+        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        let count = d.count>>2
+        for i in 0..<count {
             let location = i<<2
             let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
             var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
             if offsetS % 4 != 0 {
                 offsetS -= offsetS%4
             }
-            print(ProtocolDescriptor.PD(binary, offset: &offsetS))
+//            SwiftProtocol.SP(binary, offset: offsetS)
         }
     }
     
-    private static func handle__swift5_proto(_ binary: Data, section: section_64) {
-//        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
-//        let count = d.count>>2
-//        print(section)
-//        var offset = Int(section.offset)
-//        for i in 0..<count {
-//            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<2, length: 4))!)
-//
-//        }
-        
-//        var index = Int(section.offset)
-//        let end = Int(section.offset)+Int(section.size)
-//        while index < end {
-//            print(SwiftProtocol.SP(binary, offset: &index))
-//        }
+    private static func handle__swift5_types(_ binary: Data, section: section_64) {
+        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        let count = d.count>>2
+        for i in 0..<count {
+            let location = i<<2
+            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
+            var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
+            if offsetS % 4 != 0 {
+                offsetS -= offsetS%4
+            }
+            let flags = DataStruct.data(binary, offset: offsetS, length:4)
+        }
     }
     
     private static func handle__objc_protolist(_ binary: Data, section: section_64) {
@@ -208,6 +242,30 @@ struct Section {
                 MachOData.shared.objcProtocols.set(key: pr.isa.address.int16(), vaule: pr.name.className.value)
                 pr.serialization()
             }
+        }
+    }
+    
+    private static func handle_string_table(_ binary: Data, symtab: symtab_command) {
+        let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.stroff), length: Int(symtab.strsize)))!)
+        var index = 0
+        while index < stringTable.count {
+            var strData = Data()
+            var item = stringTable[index]
+            while item != 0 {
+                strData.append(item)
+                index += 1
+                item = stringTable[index]
+            }
+            index += 1
+            MachOData.shared.stringTable.set(key: index.string16(), vaule: String(data: strData, encoding: String.Encoding.ascii) ?? "")
+        }
+    }
+    
+    private static func handle_symbol_table(_ binary: Data, symtab: symtab_command) {
+        let offsetStart = Int(symtab.symoff)
+        for i in 0..<symtab.nsyms {
+            let nlist = Nlist.nlist(binary, offset: offsetStart+Int(i)*16)
+            MachOData.shared.symbolTable.set(key: nlist.valueAddress.value, vaule: nlist.name)
         }
     }
     

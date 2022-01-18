@@ -46,14 +46,11 @@ extension SyncDictionary {
     func getReplace(address: String) -> String? {
         serialQueue.sync {
             if let s = _data[address] as? String {
-                if s.contains("_$_") {
-                    let result = s.components(separatedBy: "_$_").last!
-                    if let swift = swift_demangle(result) {
-                        return swift
-                    }
-                    return result
+                let result = symbolName(s)
+                if let swift = swift_demangle(result) {
+                    return swift
                 }
-                return s
+                return result
             }
             return nil
         }

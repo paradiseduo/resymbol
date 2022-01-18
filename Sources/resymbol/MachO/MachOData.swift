@@ -14,6 +14,9 @@ class MachOData {
     var objcClasses = SyncDictionary("ObjcClassesDicSyncQueue")
     var dylbMap = SyncDictionary("DyldDicSyncQueue")
     var objcProtocols = SyncDictionary("ObjcProtocolDicSyncQueue")
+    var swiftProtocols = SyncDictionary("SwiftProtocolslDicSyncQueue")
+    var stringTable = SyncDictionary("StringTableDicSyncQueue")
+    var symbolTable = SyncDictionary("SymbolTableDicSyncQueue")
     
     private init() {}
 }

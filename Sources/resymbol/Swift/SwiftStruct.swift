@@ -8,7 +8,7 @@
 import Foundation
 
 struct SwiftStruct {
-    let flags: DataStruct
+    let flags: SwiftFlags
     let parent: DataStruct
     let name: DataStruct
     let accessFunction: DataStruct

@@ -18,21 +18,11 @@ struct DataStruct {
     static func data(_ binary: Data, offset: Int, length: Int) -> DataStruct {
         let b = binary.subdata(in: Range<Data.Index>(NSRange(location: offset, length: length))!)
         #if DEBUG_FLAG
-        return DataStruct(address: String(format: "%08x", offset), data: b, dataString: b.rawValue(), value: b.rawValueBig())
+        return DataStruct(address: offset.string16(), data: b, dataString: b.rawValue(), value: b.rawValueBig())
         #endif
-        return DataStruct(address: String(format: "%08x", offset), value: b.rawValueBig())
+        return DataStruct(address: offset.string16(), value: b.rawValueBig())
     }
-    
-    static func swiftData(_ binary: Data, offset: inout Int , length: Int = 4) -> DataStruct {
-        let b = binary.subdata(in: Range<Data.Index>(NSRange(location: offset, length: length))!)
-        let address = String(format: "%08x", offset)
-        offset += length
-        #if DEBUG_FLAG
-        return DataStruct(address: address, data: b, dataString: b.rawValue(), value: b.rawValueBig())
-        #endif
-        return DataStruct(address: address, value: b.rawValueBig())
-    }
-    
+
     static func textData(_ binary: Data, offset: Int, isClassName: Bool = false) -> DataStruct {
         // 如果上来就是空的，说明没有这个东西
         if binary[offset] == 0 {
