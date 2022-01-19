@@ -84,31 +84,10 @@ struct Section {
                     }
                 }
             } else if loadCommand.cmd == LC_DYLD_INFO || loadCommand.cmd == LC_DYLD_INFO_ONLY {
-                var dylib = binary.extract(dyld_info_command.self, offset: offset_machO)
-                if isByteSwapped {
-                    swap_dyld_info_command(&dylib, byteSwappedOrder)
-                }
-                queueDyld.async(group: dyldGroup) {
-                    bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.bind_off), end: Int(dylib.bind_off+dylib.bind_size))
-                }
-                queueDyld.async(group: dyldGroup) {
-                    bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.weak_bind_off), end: Int(dylib.weak_bind_off+dylib.weak_bind_size))
-                }
-                queueDyld.async(group: dyldGroup) {
-                    bindingDyld(binary, vmAddress: vmAddress, start: Int(dylib.lazy_bind_off), end: Int(dylib.lazy_bind_off+dylib.lazy_bind_size), isLazy: true)
-                }
+                bindingDylb(binary, offSet: offset_machO, isByteSwapped: isByteSwapped, vmAddress: vmAddress)
             } else if loadCommand.cmd == LC_SYMTAB {
                 if needSymbol {
-                    var symtab = binary.extract(symtab_command.self, offset: offset_machO)
-                    if isByteSwapped {
-                        swap_symtab_command(&symtab, byteSwappedOrder)
-                    }
-                    queueSymbol.async(group: dyldGroup) {
-                        handle_string_table(binary, symtab: symtab)
-                    }
-                    queueSymbol.async(group: dyldGroup) {
-                        handle_symbol_table(binary, symtab: symtab)
-                    }
+                    readSymbol(binary, offSet: offset_machO, isByteSwapped: isByteSwapped)
                 }
             } else if loadCommand.cmd == LC_DYSYMTAB {
 //                var dysymtab = binary.extract(dysymtab_command.self, offset: offset_machO)
@@ -136,6 +115,57 @@ struct Section {
                     handle(true)
                 }
             }
+        }
+    }
+    
+    static func dumpSymbol(_ binary: Data, type:BitType, isByteSwapped: Bool, handle: @escaping (Bool)->()) {
+        if type == .x64_fat || type == .x86_fat || type == .none || type == .x86 {
+            print("Only Support x64")
+            handle(false)
+            return
+        }
+        
+        let header = binary.extract(mach_header_64.self)
+        var offset_machO = MemoryLayout.size(ofValue: header)
+        for _ in 0..<header.ncmds {
+            let loadCommand = binary.extract(load_command.self, offset: offset_machO)
+            if loadCommand.cmd == LC_SYMTAB {
+                readSymbol(binary, offSet: offset_machO, isByteSwapped: isByteSwapped, dumpSymbol: true)
+                break
+            }
+            offset_machO += Int(loadCommand.cmdsize)
+        }
+        dyldGroup.notify(queue: DispatchQueue.main) {
+            handle(true)
+        }
+    }
+    
+    private static func bindingDylb(_ binary: Data, offSet: Int, isByteSwapped: Bool, vmAddress: [UInt64]) {
+        var dylib = binary.extract(dyld_info_command.self, offset: offSet)
+        if isByteSwapped {
+            swap_dyld_info_command(&dylib, byteSwappedOrder)
+        }
+        queueDyld.async(group: dyldGroup) {
+            readDyld(binary, vmAddress: vmAddress, start: Int(dylib.bind_off), end: Int(dylib.bind_off+dylib.bind_size))
+        }
+        queueDyld.async(group: dyldGroup) {
+            readDyld(binary, vmAddress: vmAddress, start: Int(dylib.weak_bind_off), end: Int(dylib.weak_bind_off+dylib.weak_bind_size))
+        }
+        queueDyld.async(group: dyldGroup) {
+            readDyld(binary, vmAddress: vmAddress, start: Int(dylib.lazy_bind_off), end: Int(dylib.lazy_bind_off+dylib.lazy_bind_size), isLazy: true)
+        }
+    }
+    
+    private static func readSymbol(_ binary: Data, offSet: Int, isByteSwapped: Bool, dumpSymbol: Bool = false) {
+        var symtab = binary.extract(symtab_command.self, offset: offSet)
+        if isByteSwapped {
+            swap_symtab_command(&symtab, byteSwappedOrder)
+        }
+        queueSymbol.async(group: dyldGroup) {
+            handle_string_table(binary, symtab: symtab)
+        }
+        queueSymbol.async(group: dyldGroup) {
+            handle_symbol_table(binary, symtab: symtab, dumpSymbol: dumpSymbol)
         }
     }
     
@@ -209,7 +239,7 @@ struct Section {
             if offsetS % 4 != 0 {
                 offsetS -= offsetS%4
             }
-//            SwiftProtocol.SP(binary, offset: offsetS)
+            SwiftProtocol.SP(binary, offset: offsetS)
         }
     }
     
@@ -261,15 +291,19 @@ struct Section {
         }
     }
     
-    private static func handle_symbol_table(_ binary: Data, symtab: symtab_command) {
+    private static func handle_symbol_table(_ binary: Data, symtab: symtab_command, dumpSymbol: Bool = false) {
         let offsetStart = Int(symtab.symoff)
         for i in 0..<symtab.nsyms {
             let nlist = Nlist.nlist(binary, offset: offsetStart+Int(i)*16)
-            MachOData.shared.symbolTable.set(key: nlist.valueAddress.value, vaule: nlist.name)
+            if dumpSymbol {
+                print("\(nlist.valueAddress.value) \(nlist.name.count > 0 ? nlist.name : "PD\(i)")")
+            } else {
+                MachOData.shared.symbolTable.set(key: nlist.valueAddress.value, vaule: nlist.name.count > 0 ? nlist.name : "PD\(i)")
+            }
         }
     }
     
-    private static func bindingDyld(_ binary: Data, vmAddress:[UInt64], start: Int, end: Int, isLazy: Bool = false) {
+    private static func readDyld(_ binary: Data, vmAddress:[UInt64], start: Int, end: Int, isLazy: Bool = false) {
         var done = false
         var symbolName = ""
         var libraryOrdinal: Int32 = 0

@@ -20,6 +20,9 @@ struct Resymbol: ParsableCommand {
     @Flag(name: .shortAndLong, help: "If restore symbol ipa, please set this flag. Default false mean is machO file path.")
     var ipa = false
     
+    @Flag(name: .shortAndLong, help: "Dump Symbol Table.")
+    var symbol = false
+    
     mutating func run() throws {
         if ipa {
             
@@ -28,8 +31,14 @@ struct Resymbol: ParsableCommand {
                 if let binary = data {
                     let fh = binary.extract(fat_header.self)
                     BitType.checkType(machoPath: filePath, header: fh) { type, isByteSwapped in
-                        Section.readSection(binary, type: type, isByteSwapped: isByteSwapped) { result in
-                            running = false
+                        if symbol {
+                            Section.dumpSymbol(binary, type: type, isByteSwapped: isByteSwapped) { result in
+                                running = false
+                            }
+                        } else {
+                            Section.readSection(binary, type: type, isByteSwapped: isByteSwapped) { result in
+                                running = false
+                            }
                         }
                     }
                 }
