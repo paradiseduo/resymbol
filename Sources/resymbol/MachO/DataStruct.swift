@@ -36,7 +36,7 @@ struct DataStruct {
                 strData.append(item)
             } else {
                 if strData.count > 0 {
-                    let strValue = String(data: strData, encoding: String.Encoding.ascii) ?? ""
+                    let strValue = String(data: strData, encoding: String.Encoding.utf8) ?? ""
                     if isClassName {
                         if let s = swift_demangle(strValue) {
                             #if DEBUG_FLAG

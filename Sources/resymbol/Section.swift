@@ -297,7 +297,7 @@ extension Section {
                 item = stringTable[index]
             }
             index += 1
-            MachOData.shared.stringTable.set(key: index.string16(), vaule: String(data: strData, encoding: String.Encoding.ascii) ?? "")
+            MachOData.shared.stringTable.set(key: index.string16(), vaule: String(data: strData, encoding: String.Encoding.utf8) ?? "")
         }
     }
     
