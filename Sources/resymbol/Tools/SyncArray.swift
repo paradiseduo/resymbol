@@ -8,11 +8,25 @@
 import Foundation
 
 class SyncArray<T> {
-    var array: [T] = []
     private let serialQueue: DispatchQueue
     
     init(_ label: String) {
         serialQueue = DispatchQueue(label: label, attributes: .concurrent)
+    }
+    
+    private var _array = [T]()
+    
+    var array: [T] {
+        get {
+            return serialQueue.sync {
+                return _array
+            }
+        }
+        set {
+            serialQueue.async(flags: .barrier) {
+                self._array = newValue
+            }
+        }
     }
     
     public func append(newElement: T) {
