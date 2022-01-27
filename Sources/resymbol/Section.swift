@@ -15,11 +15,13 @@ let dyldGroup = DispatchGroup()
 let queueDyld = DispatchQueue(label: "com.Dyld", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 let queueSymbol = DispatchQueue(label: "com.Symbol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 let queueProtocol = DispatchQueue(label: "com.Protocol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSwiftProtocol = DispatchQueue(label: "com.Swift.Protocol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSwiftProtocols = DispatchQueue(label: "com.Swift.Protocols", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
 // 再进行class的dump，因为superclass依赖dyld的绑定结果和protocol
 let resymbolGroup = DispatchGroup()
 let queueClass = DispatchQueue(label: "com.Class", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSwiftProtocol = DispatchQueue(label: "com.Swift.Protocol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSwiftTypes = DispatchQueue(label: "com.Swift.Types", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
 // 再进行category的dump，因为category依赖于class list和dyld
 let categoryGroup = DispatchGroup()
@@ -39,6 +41,7 @@ struct Section {
         var categorySections = [section_64]()
         var classSections = [section_64]()
         var swiftProtoSection: section_64?
+        var swiftTypeSection: section_64?
         var needSymbol = false
         
         let header = binary.extract(mach_header_64.self)
@@ -77,7 +80,7 @@ struct Section {
                             } else if sectname == "__swift5_protos" {
                                 handle__swift5_protos(binary, section: section)
                             } else if sectname == "__swift5_types" {
-                                handle__swift5_types(binary, section: section)
+                                swiftTypeSection = section
                             }
                         }
                         offset_segment += 0x50
@@ -108,10 +111,16 @@ struct Section {
                 handle__swift5_proto(binary, section: section)
             }
             resymbolGroup.notify(queue: queueCategory) {
+                if let section = swiftTypeSection {
+                    handle__swift5_types(binary, section: section)
+                }
                 for section in categorySections {
                     handle__objc_catlist(binary, section: section)
                 }
                 categoryGroup.notify(queue: DispatchQueue.main) {
+                    for item in MachOData.shared.swiftClasses.array {
+                        item.serialization()
+                    }
                     handle(true)
                 }
             }
@@ -240,7 +249,7 @@ extension Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>2
         for i in 0..<count {
-            DispatchLimitQueue.shared.limit(queue: queueProtocol, group: dyldGroup, count: activeProcessorCount) {
+            DispatchLimitQueue.shared.limit(queue: queueSwiftProtocols, group: dyldGroup, count: activeProcessorCount) {
                 let location = i<<2
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
                 var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
@@ -257,13 +266,34 @@ extension Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>2
         for i in 0..<count {
-            let location = i<<2
-            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-            var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
-            if offsetS % 4 != 0 {
-                offsetS -= offsetS%4
+            DispatchLimitQueue.shared.limit(queue: queueSwiftProtocol, group: resymbolGroup, count: activeProcessorCount) {
+                let location = i<<2
+                let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
+                var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
+                if offsetS % 4 != 0 {
+                    offsetS -= offsetS%4
+                }
+                let p = SwiftProtocol.SP(binary, offset: offsetS)
+                var nominalName = ""
+                switch p.nominalTypeDescriptor.nominalTypeDescriptor.value.int16Subtraction() & 0x3 {
+                case 0:
+                    nominalName = MachOData.shared.nominalOffsetMap.get(p.nominalTypeDescriptor.nominalTypeDescriptor.address) as? String ?? ""
+                    if nominalName.isEmpty {
+                        MachOData.shared.nominalOffsetMap.set(key: p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16(), vaule: p.nominalTypeDescriptor.nominalTypeName.value)
+                    }
+                    break
+                case 1:
+                    nominalName = p.nominalTypeDescriptor.nominalTypeName.value
+                    break
+                case 2:
+                    nominalName = p.nominalTypeDescriptor.nominalTypeName.value
+                    break
+                case 3:
+                    break
+                default:
+                    break
+                }
             }
-            SwiftProtocol.SP(binary, offset: offsetS)
         }
     }
     
@@ -271,14 +301,37 @@ extension Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>2
         for i in 0..<count {
-            let location = i<<2
-            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-            var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
-            if offsetS % 4 != 0 {
-                offsetS -= offsetS%4
+            DispatchLimitQueue.shared.limit(queue: queueSwiftTypes, group: categoryGroup, count: activeProcessorCount) {
+                let location = i<<2
+                let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
+                var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
+                if offsetS % 4 != 0 {
+                    offsetS -= offsetS%4
+                }
+                let flags = SwiftFlags.SF(binary, offset: offsetS)
+                switch flags.kind {
+                case .Class:
+                    let c = SwiftClass.SC(binary, offset: offsetS+4, flags: flags)
+                    MachOData.shared.swiftClasses.append(newElement: c)
+                    MachOData.shared.nominalOffsetMap.set(key: offsetS, vaule: c.type.name.swiftName.value)
+                    MachOData.shared.mangledNameMap.set(key: c.type.fieldDescriptor.mangledTypeName.swiftName.value, vaule: c.type.name.swiftName.value)
+                    break
+                case .Enum:
+                    let e = SwiftEnum.SE(binary, offset: offsetS+4, flags: flags)
+                    MachOData.shared.nominalOffsetMap.set(key: offsetS, vaule: e.type.name.swiftName.value)
+                    MachOData.shared.mangledNameMap.set(key: e.type.fieldDescriptor.mangledTypeName.swiftName.value, vaule: e.type.name.swiftName.value)
+                    break
+                case .Struct:
+                    let s = SwiftStruct.SS(binary, offset: offsetS+4, flags: flags)
+                    MachOData.shared.nominalOffsetMap.set(key: offsetS, vaule: s.type.name.swiftName.value)
+                    MachOData.shared.mangledNameMap.set(key: s.type.fieldDescriptor.mangledTypeName.swiftName.value, vaule: s.type.name.swiftName.value)
+                    break
+                case .Extension:
+                    break
+                default:
+                    break
+                }
             }
-            let flags = DataStruct.data(binary, offset: offsetS, length:4)
-            
         }
     }
 }

@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum SwiftType: Int, CustomStringConvertible {
+enum SwiftTypeEnum: Int, CustomStringConvertible {
     /// This context descriptor represents a module.
     case Module = 0
     
@@ -59,7 +59,7 @@ enum SwiftType: Int, CustomStringConvertible {
 
 struct SwiftFlags {
     let flags: DataStruct
-    let kind: SwiftType
+    let kind: SwiftTypeEnum
     let isGeneric: Bool
     let isUnique: Bool
     let version: UInt8
@@ -68,7 +68,7 @@ struct SwiftFlags {
     static func SF(_ binary: Data, offset: Int) -> SwiftFlags {
         let flags = DataStruct.data(binary, offset: offset, length: 4)
         let value = flags.value.int16()
-        let kind = SwiftType(rawValue: value & 0x1F) ?? SwiftType.Unknow
+        let kind = SwiftTypeEnum(rawValue: value & 0x1F) ?? SwiftTypeEnum.Unknow
         let isGeneric = ((value & 0x80) != 0)
         let isUnique = ((value & 0x40) != 0)
         let version = UInt8((value >> 8) & 0xFF)

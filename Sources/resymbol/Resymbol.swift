@@ -29,6 +29,7 @@ struct Resymbol: ParsableCommand {
         } else {
             FileManager.open(machoPath: filePath, backup: false) { data in
                 if let binary = data {
+                    MachOData.shared.binary = binary
                     let fh = binary.extract(fat_header.self)
                     BitType.checkType(machoPath: filePath, header: fh) { type, isByteSwapped in
                         if symbol {

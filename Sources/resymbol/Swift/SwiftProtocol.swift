@@ -26,16 +26,27 @@ struct ProtocolDescriptor {
     }
 }
 
+struct NominalTypeDescriptor {
+    let nominalTypeDescriptor: DataStruct
+    let nominalTypeName: DataStruct
+    
+    static func NT(_ binary: Data, offset: Int) -> NominalTypeDescriptor {
+        let nominalTypeDescriptor = DataStruct.data(binary, offset: offset, length: 4)
+        let nominalTypeName = DataStruct.textData(binary, offset: offset+nominalTypeDescriptor.value.int16Subtraction(), isClassName: false, isMethodName: false)
+        return NominalTypeDescriptor(nominalTypeDescriptor: nominalTypeDescriptor, nominalTypeName: nominalTypeName)
+    }
+}
+
 struct SwiftProtocol {
     let protocolsDescriptor: DataStruct
-    let nominalTypeDescriptor: DataStruct
+    let nominalTypeDescriptor: NominalTypeDescriptor
     let protocolWitnessTable: DataStruct
     let conformanceFlags: DataStruct
     let protocolName: String
     
     static func SP(_ binary: Data, offset: Int) -> SwiftProtocol {
         let protocolsDescriptor = DataStruct.data(binary, offset: offset, length: 4)
-        let nominalTypeDescriptor = DataStruct.data(binary, offset: offset+4, length: 4)
+        let nominalTypeDescriptor = NominalTypeDescriptor.NT(binary, offset: offset+4)
         let protocolWitnessTable = DataStruct.data(binary, offset: offset+8, length: 4)
         let conformanceFlags = DataStruct.data(binary, offset: offset+12, length: 4)
         
@@ -49,5 +60,13 @@ struct SwiftProtocol {
         }
         let protocolName = (MachOData.shared.swiftProtocols.get(key) as? String) ?? ""
         return SwiftProtocol(protocolsDescriptor: protocolsDescriptor, nominalTypeDescriptor: nominalTypeDescriptor, protocolWitnessTable: protocolWitnessTable, conformanceFlags: conformanceFlags, protocolName: protocolName)
+    }
+    
+    func serialization() {
+//        if protocolName.count > 0 {
+//            var result = "protocol \(protocolName) {\n"
+//            result += "}\n"
+//            print(result)
+//        }
     }
 }

@@ -207,18 +207,10 @@ func checkType(_ item: String) -> String {
     if item.hasPrefix("@\"") && item.hasSuffix("\"") {
         if item.contains("<") && item.contains(">") {
             // 代理属性
-            if let s = swift_demangle(item.replacingOccurrences(of: "@", with: "").replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "<", with: "").replacingOccurrences(of: ">", with: "")) {
-                return "id <" + s + "> *"
-            } else {
-                return "id <" + item.filter({ String($0).rangeOfCharacter(from: CharacterSet.letters) != nil }) + "> *"
-            }
+            return "id <" + getTypeFromMangledName(item.replacingOccurrences(of: "@", with: "").replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "<", with: "").replacingOccurrences(of: ">", with: "")) + "> *"
         } else {
             // 其他属性
-            if let s = swift_demangle(item.replacingOccurrences(of: "@", with: "").replacingOccurrences(of: "\"", with: "")) {
-                return s + " *"
-            } else {
-                return item.filter({ String($0).rangeOfCharacter(from: CharacterSet.letters) != nil }) + " *"
-            }
+            return getTypeFromMangledName(item.replacingOccurrences(of: "@", with: "").replacingOccurrences(of: "\"", with: "")) + " *"
         }
     } else {
         switch item {

@@ -23,7 +23,7 @@ struct DataStruct {
         return DataStruct(address: offset.string16(), value: b.rawValueBig())
     }
 
-    static func textData(_ binary: Data, offset: Int, isClassName: Bool = false) -> DataStruct {
+    static func textData(_ binary: Data, offset: Int, isClassName: Bool = false, isMethodName: Bool = false) -> DataStruct {
         // 如果上来就是空的，说明没有这个东西
         if binary[offset] == 0 {
             return DataStruct(address: offset.string16(), value: "00000000")
@@ -36,8 +36,8 @@ struct DataStruct {
                 strData.append(item)
             } else {
                 if strData.count > 0 {
-                    let strValue = String(data: strData, encoding: String.Encoding.utf8) ?? ""
-                    if isClassName {
+                    let strValue = String(data: strData, encoding: String.Encoding.utf8) ?? "0x\(strData.rawValue())"
+                    if isClassName || isMethodName {
                         if let s = swift_demangle(strValue) {
                             #if DEBUG_FLAG
                             return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: s)
@@ -46,9 +46,9 @@ struct DataStruct {
                         }
                     }
                     #if DEBUG_FLAG
-                    return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: strValue)
+                    return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: getTypeFromMangledName(strValue))
                     #endif
-                    return DataStruct(address: (Int(offset)-strData.count).string16(), value: strValue)
+                    return DataStruct(address: (Int(offset)-strData.count).string16(), value: getTypeFromMangledName(strValue))
                 }
             }
             start += 1

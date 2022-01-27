@@ -8,6 +8,16 @@
 import Foundation
 
 extension String {
+    var hexData: Data { .init(hexa) }
+    private var hexa: UnfoldSequence<UInt8, Index> {
+        sequence(state: startIndex) { startIndex in
+            guard startIndex < self.endIndex else { return nil }
+            let endIndex = self.index(startIndex, offsetBy: 2, limitedBy: self.endIndex) ?? self.endIndex
+            defer { startIndex = endIndex }
+            return UInt8(self[startIndex..<endIndex], radix: 16)
+        }
+    }
+    
     init(rawCString: (Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8)) {
         var rawCString = rawCString
         let rawCStringSize = MemoryLayout.size(ofValue: rawCString)
@@ -66,19 +76,39 @@ extension String {
     }
     
     func ltrim(_ chars: String) -> String {
-        if let index = self.firstIndex(where: {!chars.contains($0)}) {
-            return String(self[index..<self.endIndex])
-        } else {
-            return self
+        if self.hasPrefix(chars) {
+            return String(dropFirst(chars.count))
         }
+        return self
     }
     
     func rtrim(_ chars: String) -> String {
-        if let index = self.lastIndex(where: {!chars.contains($0)}) {
-            return String(self[self.startIndex...index])
-        } else {
-            return self
+        if self.hasSuffix(chars) {
+            return String(dropLast(chars.count))
         }
+        return self
+    }
+    
+    func isAsciiStr() -> Bool {
+        return self.range(of: ".*[^A-Za-z0-9_$ ].*", options: .regularExpression) == nil;
+    }
+    
+    func toPointer() -> UnsafePointer<UInt8>? {
+        guard let data = self.data(using: String.Encoding.utf8) else { return nil }
+        
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: data.count)
+        let stream = OutputStream(toBuffer: buffer, capacity: data.count)
+        
+        stream.open()
+        data.withUnsafeBytes { (bp:UnsafeRawBufferPointer) in
+            if let sp:UnsafePointer<UInt8> = bp.baseAddress?.bindMemory(to: UInt8.self, capacity: MemoryLayout<Any>.stride) {
+                stream.write(sp, maxLength: data.count)
+            }
+        }
+        
+        stream.close()
+        
+        return UnsafePointer<UInt8>(buffer)
     }
 }
 
