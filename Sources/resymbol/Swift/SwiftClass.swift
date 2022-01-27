@@ -38,17 +38,17 @@ struct SwiftClass {
     }
     
     func serialization() {
-        var result = "class \(self.type.name.swiftName.value)"
-        if self.superclassType.superclassType.value != "00000000" {
-            if self.superclassType.superclassType.value.starts(with: "0x"), let s = MachOData.shared.mangledNameMap.get(self.superclassType.superclassType.value) {
+        var result = "class \(type.name.swiftName.value)"
+        if superclassType.superclassType.value != "00000000" {
+            if superclassType.superclassType.value.starts(with: "0x"), let s = MachOData.shared.mangledNameMap.get(superclassType.superclassType.value) {
                 result += ": \(s) {\n"
             } else {
-                result += ": \(self.superclassType.superclassType.value) {\n"
+                result += ": \(superclassType.superclassType.value) {\n"
             }
         } else {
             result += " {\n"
         }
-        for item in self.type.fieldDescriptor.fieldRecords {
+        for item in type.fieldDescriptor.fieldRecords {
             if item.mangledTypeName.swiftName.value.starts(with: "0x") {
                 result += "    let \(item.fieldName.swiftName.value): \(item.fixMangledTypeName())\n"
             } else {

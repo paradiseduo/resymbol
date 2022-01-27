@@ -30,23 +30,21 @@ class SyncArray<T> {
     }
     
     public func append(newElement: T) {
-        self.serialQueue.async {
+        serialQueue.async {
             self.array.append(newElement)
         }
     }
 
     public subscript(index: Int) -> T {
-        set {
-            self.serialQueue.async {
-                self.array[index] = newValue
+        get {
+            return serialQueue.sync {
+                return array[index]
             }
         }
-        get {
-            var element: T!
-            self.serialQueue.sync {
-                element = self.array[index]
+        set {
+            serialQueue.async(flags: .barrier) {
+                self.array[index] = newValue
             }
-            return element
         }
     }
 }

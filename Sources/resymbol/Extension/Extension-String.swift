@@ -11,8 +11,8 @@ extension String {
     var hexData: Data { .init(hexa) }
     private var hexa: UnfoldSequence<UInt8, Index> {
         sequence(state: startIndex) { startIndex in
-            guard startIndex < self.endIndex else { return nil }
-            let endIndex = self.index(startIndex, offsetBy: 2, limitedBy: self.endIndex) ?? self.endIndex
+            guard startIndex < endIndex else { return nil }
+            let endIndex = index(startIndex, offsetBy: 2, limitedBy: endIndex) ?? endIndex
             defer { startIndex = endIndex }
             return UInt8(self[startIndex..<endIndex], radix: 16)
         }
@@ -52,7 +52,7 @@ extension String {
     }
     
     func int16() -> Int {
-        if self.hasPrefix("ff") {
+        if hasPrefix("ff") {
             return int16Subtraction()
         }
         return Int(self, radix: 16) ?? 0
@@ -60,7 +60,7 @@ extension String {
     
     func int16Subtraction() -> Int {
         if let i = Int(self, radix: 16) {
-            if self.starts(with: "0") {
+            if starts(with: "0") {
                 return i
             } else {
                 return i | ~0xFFFFFFFF
@@ -76,25 +76,25 @@ extension String {
     }
     
     func ltrim(_ chars: String) -> String {
-        if self.hasPrefix(chars) {
+        if hasPrefix(chars) {
             return String(dropFirst(chars.count))
         }
         return self
     }
     
     func rtrim(_ chars: String) -> String {
-        if self.hasSuffix(chars) {
+        if hasSuffix(chars) {
             return String(dropLast(chars.count))
         }
         return self
     }
     
     func isAsciiStr() -> Bool {
-        return self.range(of: ".*[^A-Za-z0-9_$ ].*", options: .regularExpression) == nil;
+        return range(of: ".*[^A-Za-z0-9_$ ].*", options: .regularExpression) == nil;
     }
     
     func toPointer() -> UnsafePointer<UInt8>? {
-        guard let data = self.data(using: String.Encoding.utf8) else { return nil }
+        guard let data = data(using: String.Encoding.utf8) else { return nil }
         
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: data.count)
         let stream = OutputStream(toBuffer: buffer, capacity: data.count)

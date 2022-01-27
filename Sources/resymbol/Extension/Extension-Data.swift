@@ -18,18 +18,18 @@ extension Data {
     }
     
     func readValue<Type>(_ offset: Int) -> Type? {
-        let val:Type? = self.withUnsafeBytes { (ptr:UnsafeRawBufferPointer) -> Type? in
+        let val:Type? = withUnsafeBytes { (ptr:UnsafeRawBufferPointer) -> Type? in
             return ptr.baseAddress?.advanced(by: offset).load(as: Type.self);
         }
         return val;
     }
     
     func rawValue() -> String {
-        return self.map { String(format: "%02x", $0) }.joined()
+        return map { String(format: "%02x", $0) }.joined()
     }
     
     func rawValueBig() -> String {
-        return self.map { String(format: "%02x", $0) }.reversed().joined()
+        return map { String(format: "%02x", $0) }.reversed().joined()
     }
     
     func read_uleb128(index: inout Int, end: Int) -> UInt64 {
