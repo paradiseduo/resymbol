@@ -24,9 +24,18 @@ struct SwiftEnum {
         var result = "\(type.flags.kind.description) \(type.name.swiftName.value) {\n"
         for item in type.fieldDescriptor.fieldRecords {
             if item.mangledTypeName.swiftName.value.starts(with: "0x") {
-                result += "    case \(item.fieldName.swiftName.value): \(item.fixMangledTypeName())\n"
+                if item.fixMangledTypeName().count > 0 {
+                    result += "    case \(item.fieldName.swiftName.value): \(item.fixMangledTypeName())\n"
+                } else {
+                    result += "    case \(item.fieldName.swiftName.value)\n"
+                }
+                
             } else {
-                result += "    case \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
+                if item.mangledTypeName.swiftName.value != "00000000" {
+                    result += "    case \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
+                } else {
+                    result += "    case \(item.fieldName.swiftName.value)\n"
+                }
             }
         }
         result += "}\n"
