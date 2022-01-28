@@ -14,8 +14,8 @@ struct FieldRecord {
     
     static func FR(_ binary: Data, offset: Int) -> FieldRecord {
         let flags = SwiftFlags.SF(binary, offset: offset)
-        let mangledTypeName = SwiftName.SN(binary, offset: offset+4)
-        let fieldName = SwiftName.SN(binary, offset: offset+8)
+        let mangledTypeName = SwiftName.SN(binary, offset: offset+4, isClassName: false)
+        let fieldName = SwiftName.SN(binary, offset: offset+8, isClassName: false)
         return FieldRecord(flags: flags, mangledTypeName: mangledTypeName, fieldName: fieldName)
     }
     
@@ -104,7 +104,7 @@ struct FieldDescriptor {
         
         let newOffset = fieldDescriptor.address.int16()+fieldDescriptor.value.int16()
         
-        let mangledTypeName = SwiftName.SN(binary, offset: newOffset)
+        let mangledTypeName = SwiftName.SN(binary, offset: newOffset, isClassName: false)
         let superclass = DataStruct.data(binary, offset: newOffset+4, length: 4)
         let kind = DataStruct.data(binary, offset: newOffset+8, length: 2)
         let fieldRecordSize = DataStruct.data(binary, offset: newOffset+10, length: 2)

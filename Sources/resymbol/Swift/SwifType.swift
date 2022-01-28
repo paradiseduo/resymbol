@@ -16,7 +16,7 @@ struct SwiftType {
     
     static func ST(_ binary: Data, offset: Int, flags: SwiftFlags) -> SwiftType {
         let parent = SwiftParent.SP(binary, offset: offset)
-        let name = SwiftName.SN(binary, offset: offset+4)
+        let name = SwiftName.SN(binary, offset: offset+4, isClassName: true)
         let accessFunction = DataStruct.data(binary, offset: offset+8, length: 4)
         let fieldDescriptor = FieldDescriptor.FD(binary, offset: offset+12)
         

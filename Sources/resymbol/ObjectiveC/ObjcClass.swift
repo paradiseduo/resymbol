@@ -104,7 +104,7 @@ struct ObjcClassRO {
         let instanceSize = DataStruct.data(binary, offset: offset+8, length: 4)
         let reserved = DataStruct.data(binary, offset: offset+12, length: 4)
         let ivarlayout = DataStruct.data(binary, offset: offset+16, length: 8)
-        let name = ClassName.className(binary, startOffset: offset+24)
+        let name = ClassName.className(binary, startOffset: offset+24, isSwiftClass: isSwiftClass)
         
         let baseMethod = Methods.methods(binary, startOffset: offset+32, typeOffSet: &typeOffset)
         let baseProtocol = Protocols.protocols(binary, startOffset: offset+40)

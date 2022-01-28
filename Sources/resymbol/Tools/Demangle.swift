@@ -59,6 +59,9 @@ func runtimeGetDemangledName(_ instr: String) -> String {
 }
 
 func getTypeFromMangledName(_ str: String) -> String {
+    if str.hasSuffix("0x") {
+        return str
+    }
     if (canDemangleFromRuntime(str)) {
         return runtimeGetDemangledName(str)
     }
