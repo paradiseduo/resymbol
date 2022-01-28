@@ -13,7 +13,7 @@ struct ObjcSuperClass {
     
     static func OSC(_ binary: Data, offset: Int) -> ObjcSuperClass {
         let superClass = DataStruct.data(binary, offset: offset, length: 8)
-        let superClassName = MachOData.shared.dylbMap.getReplace(address: superClass.address.ltrim("0")) ?? ""
+        let superClassName = fixSymbolName(MachOData.shared.dylbMap[superClass.address.ltrim("0")]) ?? ""
         return ObjcSuperClass(superClass: superClass, superClassName: superClassName)
     }
 }

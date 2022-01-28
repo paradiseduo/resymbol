@@ -118,8 +118,10 @@ struct Section {
                     handle__objc_catlist(binary, section: section)
                 }
                 categoryGroup.notify(queue: DispatchQueue.main) {
-                    for item in MachOData.shared.swiftClasses.array {
-                        item.serialization()
+                    for i in 0..<MachOData.shared.swiftClasses.count {
+                        if let item = MachOData.shared.swiftClasses[i] {
+                            item.serialization()
+                        }
                     }
                     handle(true)
                 }
@@ -201,7 +203,7 @@ extension Section {
                         metaClassOffset -= metaClassOffset%4
                     }
                     oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
-                    MachOData.shared.objcClasses.set(key: oc.isa.address.int16(), vaule: oc.classRO.name.className.value)
+                    MachOData.shared.objcClasses[oc.isa.address.int16()] = oc.classRO.name.className.value
                     oc.serialization()
                 }
             }
@@ -236,7 +238,7 @@ extension Section {
                     offsetS -= offsetS%4
                 }
                 let pr = ObjcProtocol.OCPT(binary, offset: offsetS)
-                MachOData.shared.objcProtocols.set(key: pr.isa.address.int16(), vaule: pr.name.className.value)
+                MachOData.shared.objcProtocols[pr.isa.address.int16()] = pr.name.className.value
                 pr.serialization()
             }
         }
@@ -257,7 +259,7 @@ extension Section {
                     offsetS -= offsetS%4
                 }
                 let p = ProtocolDescriptor.PD(binary, offset: offsetS)
-                MachOData.shared.swiftProtocols.set(key: offsetS, vaule: p.name.swiftName.value)
+                MachOData.shared.swiftProtocols[offsetS] = p.name.swiftName.value
             }
         }
     }
@@ -277,9 +279,9 @@ extension Section {
                 var nominalName = ""
                 switch p.nominalTypeDescriptor.nominalTypeDescriptor.value.int16Subtraction() & 0x3 {
                 case 0:
-                    nominalName = MachOData.shared.nominalOffsetMap.get(p.nominalTypeDescriptor.nominalTypeDescriptor.address) as? String ?? ""
+                    nominalName = MachOData.shared.nominalOffsetMap[p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()] ?? ""
                     if nominalName.isEmpty {
-                        MachOData.shared.nominalOffsetMap.set(key: p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16(), vaule: p.nominalTypeDescriptor.nominalTypeName.value)
+                        MachOData.shared.nominalOffsetMap[p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()] = p.nominalTypeDescriptor.nominalTypeName.value
                     }
                     break
                 case 1:
@@ -312,19 +314,19 @@ extension Section {
                 switch flags.kind {
                 case .Class:
                     let c = SwiftClass.SC(binary, offset: offsetS+4, flags: flags)
-                    MachOData.shared.swiftClasses.append(newElement: c)
-                    MachOData.shared.nominalOffsetMap.set(key: offsetS, vaule: c.type.name.swiftName.value)
-                    MachOData.shared.mangledNameMap.set(key: c.type.fieldDescriptor.mangledTypeName.swiftName.value, vaule: c.type.name.swiftName.value)
+                    MachOData.shared.swiftClasses.append(c)
+                    MachOData.shared.nominalOffsetMap[offsetS] = c.type.name.swiftName.value
+                    MachOData.shared.mangledNameMap[c.type.fieldDescriptor.mangledTypeName.swiftName.value] = c.type.name.swiftName.value
                     break
                 case .Enum:
                     let e = SwiftEnum.SE(binary, offset: offsetS+4, flags: flags)
-                    MachOData.shared.nominalOffsetMap.set(key: offsetS, vaule: e.type.name.swiftName.value)
-                    MachOData.shared.mangledNameMap.set(key: e.type.fieldDescriptor.mangledTypeName.swiftName.value, vaule: e.type.name.swiftName.value)
+                    MachOData.shared.nominalOffsetMap[offsetS] = e.type.name.swiftName.value
+                    MachOData.shared.mangledNameMap[e.type.fieldDescriptor.mangledTypeName.swiftName.value] = e.type.name.swiftName.value
                     break
                 case .Struct:
                     let s = SwiftStruct.SS(binary, offset: offsetS+4, flags: flags)
-                    MachOData.shared.nominalOffsetMap.set(key: offsetS, vaule: s.type.name.swiftName.value)
-                    MachOData.shared.mangledNameMap.set(key: s.type.fieldDescriptor.mangledTypeName.swiftName.value, vaule: s.type.name.swiftName.value)
+                    MachOData.shared.nominalOffsetMap[offsetS] = s.type.name.swiftName.value
+                    MachOData.shared.mangledNameMap[s.type.fieldDescriptor.mangledTypeName.swiftName.value] = s.type.name.swiftName.value
                     break
                 case .Extension:
                     break
@@ -350,7 +352,7 @@ extension Section {
                 item = stringTable[index]
             }
             index += 1
-            MachOData.shared.stringTable.set(key: index.string16(), vaule: String(data: strData, encoding: String.Encoding.utf8) ?? "")
+            MachOData.shared.stringTable[index.string16()] = String(data: strData, encoding: String.Encoding.utf8) ?? ""
         }
     }
     
@@ -361,7 +363,7 @@ extension Section {
             if dumpSymbol {
                 print("\(nlist.valueAddress.value) \(nlist.name.count > 0 ? nlist.name : "PD\(i)")")
             } else {
-                MachOData.shared.symbolTable.set(key: nlist.valueAddress.value, vaule: nlist.name.count > 0 ? nlist.name : "PD\(i)")
+                MachOData.shared.symbolTable[nlist.valueAddress.value] = nlist.name.count > 0 ? nlist.name : "PD\(i)"
             }
         }
     }

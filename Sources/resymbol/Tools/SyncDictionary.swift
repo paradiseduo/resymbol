@@ -7,62 +7,65 @@
 
 import Foundation
 
-class SyncDictionary {
-    let serialQueue: DispatchQueue
+class SyncDictionary<V: Hashable, T>: Collection {
+
+    private var dictionary = [V: T]()
+    private let queue: DispatchQueue
     
     init(_ label: String) {
-        serialQueue = DispatchQueue(label: label, attributes: .concurrent)
+        queue = DispatchQueue(label: label, attributes: .concurrent)
     }
     
-    private var _data = [AnyHashable: Any]()
-    
-    var data: [AnyHashable: Any] {
-        get {
-            return serialQueue.sync {
-                return _data
-            }
-        }
-        set {
-            serialQueue.async(flags: .barrier) {
-                self._data = newValue
-            }
+    var startIndex: Dictionary<V, T>.Index {
+        queue.sync {
+            return dictionary.startIndex
         }
     }
-    
-    func get(_ key: AnyHashable) -> Any? {
-        serialQueue.sync {
-            return _data[key]
-        }
-    }
-    
-    func set(key: AnyHashable, vaule newValue: Any) {
-        serialQueue.async(flags: .barrier) {
-            self._data[key] = newValue
-        }
-    }
-}
 
-extension SyncDictionary {
-    func getReplace(address: String) -> String? {
-        serialQueue.sync {
-            if let s = _data[address] as? String {
-                let result = symbolName(s)
-                if let swift = swift_demangle(result) {
-                    return swift
-                }
-                return result
+    var endIndex: Dictionary<V, T>.Index {
+        queue.sync {
+            return dictionary.endIndex
+        }
+    }
+
+    // this is because it is an apple protocol method
+    // swiftlint:disable identifier_name
+    func index(after i: Dictionary<V, T>.Index) -> Dictionary<V, T>.Index {
+        queue.sync {
+            return dictionary.index(after: i)
+        }
+    }
+    // swiftlint:enable identifier_name
+    subscript(key: V) -> T? {
+        set(newValue) {
+            queue.async(flags: .barrier) {[weak self] in
+                self?.dictionary[key] = newValue
             }
-            return nil
+        }
+        get {
+            queue.sync {
+                return dictionary[key]
+            }
+        }
+    }
+
+    // has implicity get
+    subscript(index: Dictionary<V, T>.Index) -> Dictionary<V, T>.Element {
+        queue.sync {
+            return dictionary[index]
         }
     }
     
-    func set(address: UInt64, vaule newValue: String) {
-        serialQueue.async(flags: .barrier) {
-            var add = address
-            if address > RVA {
-                add = address - RVA
-            }
-            self._data[String(add, radix: 16, uppercase: false)] = newValue
+    func removeValue(forKey key: V) {
+        queue.async(flags: .barrier) {[weak self] in
+            self?.dictionary.removeValue(forKey: key)
         }
     }
+
+    func removeAll() {
+        queue.async(flags: .barrier) {[weak self] in
+            self?.dictionary.removeAll()
+        }
+    }
+
 }

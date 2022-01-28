@@ -79,7 +79,7 @@ struct Nlist {
         let sectionIndex = DataStruct.data(binary, offset: offset+5, length: 1)
         let description = DataStruct.data(binary, offset: offset+6, length: 2)
         let valueAddress = DataStruct.data(binary, offset: offset+8, length: 8)
-        let name = (MachOData.shared.stringTable.get(stringTableIndex.value) as? String) ?? ""
+        let name = MachOData.shared.stringTable[stringTableIndex.value] ?? ""
         return Nlist(stringTableIndex: stringTableIndex, type: type, sectionIndex: sectionIndex, description: description, valueAddress: valueAddress, name: name)
     }
 }
@@ -92,6 +92,17 @@ func symbolName(_ name: String) -> String {
                 return name.replacingOccurrences(of: item, with: "")
             }
         }
+    }
+    return name
+}
+
+func fixSymbolName(_ name: String?) -> String? {
+    if let s = name {
+        let result = symbolName(s)
+        if let swift = swift_demangle(result) {
+            return swift
+        }
+        return result
     }
     return name
 }

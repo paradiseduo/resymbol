@@ -13,15 +13,21 @@ class MachOData {
     static let shared = MachOData()
     var binary = Data()
     
-    var objcClasses = SyncDictionary("ObjcClassesDicSyncQueue")
-    var dylbMap = SyncDictionary("DyldDicSyncQueue")
-    var objcProtocols = SyncDictionary("ObjcProtocolDicSyncQueue")
-    var swiftProtocols = SyncDictionary("SwiftProtocolslDicSyncQueue")
-    var stringTable = SyncDictionary("StringTableDicSyncQueue")
-    var symbolTable = SyncDictionary("SymbolTableDicSyncQueue")
-    var mangledNameMap = SyncDictionary("MangledNameMapDicSyncQueue")
+    var objcClasses = SyncDictionary<Int, String>("ObjcClassesDicSyncQueue")
+    var dylbMap = SyncDictionary<String, String>("DyldDicSyncQueue")
+    var objcProtocols = SyncDictionary<Int, String>("ObjcProtocolDicSyncQueue")
+    var swiftProtocols = SyncDictionary<Int, String>("SwiftProtocolslDicSyncQueue")
+    var stringTable = SyncDictionary<String, String>("StringTableDicSyncQueue")
+    var symbolTable = SyncDictionary<String, String>("SymbolTableDicSyncQueue")
+    var mangledNameMap = SyncDictionary<String, String>("MangledNameMapDicSyncQueue")
     var swiftClasses = SyncArray<SwiftClass>("SwiftClassesArraySyncQueue")
-    var nominalOffsetMap = SyncDictionary("NominalOffsetMapDicSyncQueue")
+    var nominalOffsetMap = SyncDictionary<Int, String>("NominalOffsetMapDicSyncQueue")
+    
+    var categorySections = [section_64]()
+    var classSections = [section_64]()
+    var protocolSection: section_64?
+    var swiftProtoSection: section_64?
+    var swiftTypeSection: section_64?
     
     private init() {}
 }

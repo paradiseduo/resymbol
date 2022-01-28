@@ -84,20 +84,20 @@ struct Dyld {
                 break
             case BIND_OPCODE_DO_BIND:
                 printf("BIND_OPCODE: DO_BIND")
-                MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
+                set(address: address, vaule: symbolName)
                 bindCount += 1
                 address &+= ptrSize
                 break
             case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
                 let r = binary.read_uleb128(index: &index, end: end)
                 printf("BIND_OPCODE: DO_BIND_ADD_ADDR_ULEB,          \(address) += \(ptrSize) + \(String(format: "%016llx", r))  index: \(cccccc)")
-                MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
+                set(address: address, vaule: symbolName)
                 bindCount += 1
                 address &+= (ptrSize &+ r)
                 break
             case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
                 printf("BIND_OPCODE: DO_BIND_ADD_ADDR_IMM_SCALED,    \(address) += \(ptrSize) * \((ptrSize * UInt64(immediate)))  index: \(cccccc)")
-                MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
+                set(address: address, vaule: symbolName)
                 bindCount += 1
                 address &+= (ptrSize &+ (ptrSize * UInt64(immediate)))
                 break
@@ -106,7 +106,7 @@ struct Dyld {
                 let skip = binary.read_uleb128(index: &index, end: end)
                 printf("BIND_OPCODE: DO_BIND_ULEB_TIMES_SKIPPING_ULEB, count: \(String(format: "%016llx", count)), skip: \(String(format: "%016llx", skip))  index: \(cccccc)")
                 for _ in 0 ..< count {
-                    MachOData.shared.dylbMap.set(address: address, vaule: symbolName)
+                    set(address: address, vaule: symbolName)
                     address &+= (ptrSize &+ skip)
                 }
                 bindCount += count
@@ -115,5 +115,13 @@ struct Dyld {
                 break
             }
         }
+    }
+    
+    private static func set(address: UInt64, vaule newValue: String) {
+        var add = address
+        if address > RVA {
+            add = address - RVA
+        }
+        MachOData.shared.dylbMap[String(add, radix: 16, uppercase: false)] = newValue
     }
 }

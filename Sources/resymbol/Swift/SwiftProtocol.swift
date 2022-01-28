@@ -58,7 +58,7 @@ struct SwiftProtocol {
         } else {
             key = newOffSet+offset
         }
-        let protocolName = (MachOData.shared.swiftProtocols.get(key) as? String) ?? ""
+        let protocolName = MachOData.shared.swiftProtocols[key] ?? ""
         return SwiftProtocol(protocolsDescriptor: protocolsDescriptor, nominalTypeDescriptor: nominalTypeDescriptor, protocolWitnessTable: protocolWitnessTable, conformanceFlags: conformanceFlags, protocolName: protocolName)
     }
     

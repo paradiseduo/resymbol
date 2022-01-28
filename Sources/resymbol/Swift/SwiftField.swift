@@ -40,7 +40,7 @@ struct FieldRecord {
                 }
                 let subData = data[fromIdx..<toIdx]
                 let address = subData.rawValueBig().int16() + startAddress + fromIdx
-                let result = MachOData.shared.nominalOffsetMap.get(address) as? String ?? ""
+                let result = MachOData.shared.nominalOffsetMap[address] ?? ""
                 
                 if (i == 0 && toIdx >= data.count) {
                     mangledName = mangledName + result // use original result
@@ -57,7 +57,7 @@ struct FieldRecord {
                 
                 let subData = data[fromIdx..<toIdx]
                 let address = subData.rawValueBig().int16() + startAddress + fromIdx
-                let result = MachOData.shared.nominalOffsetMap.get(DataStruct.data(MachOData.shared.binary, offset: address, length: 4).value.int16()) as? String ?? ""
+                let result = MachOData.shared.nominalOffsetMap[DataStruct.data(MachOData.shared.binary, offset: address, length: 4).value.int16()] ?? ""
                 
                 if (i == 0 && toIdx >= data.count) {
                     mangledName = mangledName + result

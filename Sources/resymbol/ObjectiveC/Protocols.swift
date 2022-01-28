@@ -44,7 +44,7 @@ struct Protocols {
         if let pros = protocols {
             protocolString += "<"
             for item in pros {
-                if let p = MachOData.shared.objcProtocols.get(item.pointer.value.int16Replace()) as? String {
+                if let p = MachOData.shared.objcProtocols[item.pointer.value.int16Replace()] {
                     protocolString += p + ", "
                 }
             }
