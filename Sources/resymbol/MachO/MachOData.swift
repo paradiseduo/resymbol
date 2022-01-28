@@ -20,8 +20,11 @@ class MachOData {
     var stringTable = SyncDictionary<String, String>("StringTableDicSyncQueue")
     var symbolTable = SyncDictionary<String, String>("SymbolTableDicSyncQueue")
     var mangledNameMap = SyncDictionary<String, String>("MangledNameMapDicSyncQueue")
-    var swiftClasses = SyncArray<SwiftClass>("SwiftClassesArraySyncQueue")
     var nominalOffsetMap = SyncDictionary<Int, String>("NominalOffsetMapDicSyncQueue")
+    
+    var swiftClasses = SyncArray<SwiftClass>("SwiftClassesArraySyncQueue")
+    var swiftStruct = SyncArray<SwiftStruct>("SwiftStructArraySyncQueue")
+    var swiftEnum = SyncArray<SwiftEnum>("SwiftEnumArraySyncQueue")
     
     var categorySections = [section_64]()
     var classSections = [section_64]()

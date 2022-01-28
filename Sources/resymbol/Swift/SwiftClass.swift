@@ -38,7 +38,7 @@ struct SwiftClass {
     }
     
     func serialization() {
-        var result = "class \(type.name.swiftName.value)"
+        var result = "\(type.flags.kind.description) \(type.name.swiftName.value)"
         if superclassType.superclassType.value != "00000000" {
             if superclassType.superclassType.value.starts(with: "0x"), let s = MachOData.shared.mangledNameMap[superclassType.superclassType.value] {
                 result += ": \(s) {\n"

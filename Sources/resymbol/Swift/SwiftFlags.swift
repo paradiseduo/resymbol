@@ -43,16 +43,16 @@ enum SwiftTypeEnum: Int, CustomStringConvertible {
     
     var description: String {
         switch self {
-        case .Module: return "module";
-        case .Extension: return "extension";
-        case .Anonymous: return "anonymous";
-        case .SwiftProtocol: return "protocol";
-        case .OpaqueType: return "OpaqueType";
-        case .Class: return "class";
-        case .Struct: return "struct";
-        case .Enum: return "enum";
-        case .Type_Last: return "Type_Last";
-        case .Unknow: return "unknow";
+        case .Module: return "module"
+        case .Extension: return "extension"
+        case .Anonymous: return "anonymous"
+        case .SwiftProtocol: return "protocol"
+        case .OpaqueType: return "OpaqueType"
+        case .Class: return "class"
+        case .Struct: return "struct"
+        case .Enum: return "enum"
+        case .Type_Last: return "Type_Last"
+        case .Unknow: return "unknow"
         }
     }
 }

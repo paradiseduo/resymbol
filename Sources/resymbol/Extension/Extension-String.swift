@@ -90,7 +90,7 @@ extension String {
     }
     
     func isAsciiStr() -> Bool {
-        return range(of: ".*[^A-Za-z0-9_$ ].*", options: .regularExpression) == nil;
+        return range(of: ".*[^A-Za-z0-9_$ ].*", options: .regularExpression) == nil
     }
     
     func toPointer() -> UnsafePointer<UInt8>? {

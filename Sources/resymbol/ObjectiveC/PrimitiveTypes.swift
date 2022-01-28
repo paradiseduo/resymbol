@@ -38,7 +38,7 @@ import Foundation
 // :: SEL
 // %: NXAtom
 // ?: void
-//case '?': return @"UNKNOWN"; // For easier regression testing.
+//case '?': return @"UNKNOWN" // For easier regression testing.
 // j: _Complex - is this a modifier or a primitive type?
 //
 // modifier (which?) w/ _subtype.  Can we limit these to the top level of the type?
@@ -74,6 +74,9 @@ func grepStructName(_ type: String) -> String {
 func primitiveType(_ type: String) -> String {
     if type.count == 0 {
         return "MISSING_TYPE"
+    }
+    if type == "00000000" {
+        return "Swift.Type"
     }
     var result = ""
     let grepType = grepStructName(type)

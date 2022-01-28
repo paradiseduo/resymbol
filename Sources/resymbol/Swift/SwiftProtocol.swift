@@ -63,10 +63,10 @@ struct SwiftProtocol {
     }
     
     func serialization() {
-//        if protocolName.count > 0 {
-//            var result = "protocol \(protocolName) {\n"
-//            result += "}\n"
-//            print(result)
-//        }
+        if protocolName.count > 0 {
+            var result = "protocol \(protocolName) {\n"
+            result += "}\n"
+            print(result)
+        }
     }
 }

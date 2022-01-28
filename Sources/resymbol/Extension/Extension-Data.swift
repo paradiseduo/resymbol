@@ -19,9 +19,9 @@ extension Data {
     
     func readValue<Type>(_ offset: Int) -> Type? {
         let val:Type? = withUnsafeBytes { (ptr:UnsafeRawBufferPointer) -> Type? in
-            return ptr.baseAddress?.advanced(by: offset).load(as: Type.self);
+            return ptr.baseAddress?.advanced(by: offset).load(as: Type.self)
         }
-        return val;
+        return val
     }
     
     func rawValue() -> String {

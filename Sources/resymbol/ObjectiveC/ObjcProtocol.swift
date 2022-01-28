@@ -22,7 +22,7 @@ struct ObjcProtocol {
     
     static func OCPT(_ binary: Data, offset: Int) -> ObjcProtocol {
         let isa = DataStruct.data(binary, offset: offset, length: 8)
-        let name = ClassName.className(binary, startOffset: offset+8)
+        let name = ClassName.className(binary, startOffset: offset+8, isSwiftClass: true)
         let protocols = Protocols.protocols(binary, startOffset: offset+16)
         
         let instanceProperties = Properties.properties(binary, startOffset: offset+56)

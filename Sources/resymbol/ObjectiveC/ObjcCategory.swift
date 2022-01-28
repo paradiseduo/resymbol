@@ -20,7 +20,7 @@ struct ObjcCategory {
     
     static func OCCG(_ binary: Data, offset: Int) -> ObjcCategory {
         var typeOffset = 0
-        let name = ClassName.className(binary, startOffset: offset)
+        let name = ClassName.className(binary, startOffset: offset, isSwiftClass: true)
         let classs = DataStruct.data(binary, offset: offset+8, length: 8)
         let instanceMethods = Methods.methods(binary, startOffset: offset+16, typeOffSet: &typeOffset)
         let classMethods = Methods.methods(binary, startOffset: offset+24, typeOffSet: &typeOffset)

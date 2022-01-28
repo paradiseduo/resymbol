@@ -19,4 +19,17 @@ struct SwiftStruct {
         
         return SwiftStruct(type: type, numFields: numFields, fieldOffsetVectorOffset: fieldOffsetVectorOffset)
     }
+    
+    func serialization() {
+        var result = "\(type.flags.kind.description) \(type.name.swiftName.value) {\n"
+        for item in type.fieldDescriptor.fieldRecords {
+            if item.mangledTypeName.swiftName.value.starts(with: "0x") {
+                result += "    let \(item.fieldName.swiftName.value): \(item.fixMangledTypeName())\n"
+            } else {
+                result += "    let \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
+            }
+        }
+        result += "}\n"
+        print(result)
+    }
 }

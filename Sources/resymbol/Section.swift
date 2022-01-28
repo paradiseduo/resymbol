@@ -27,6 +27,9 @@ let queueSwiftTypes = DispatchQueue(label: "com.Swift.Types", qos: .unspecified,
 let categoryGroup = DispatchGroup()
 let queueCategory = DispatchQueue(label: "com.Category", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
+let printGroup = DispatchGroup()
+let queuePrint = DispatchQueue(label: "com.Print", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+
 let activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount/2
 
 struct Section {
@@ -117,13 +120,35 @@ struct Section {
                 for section in categorySections {
                     handle__objc_catlist(binary, section: section)
                 }
-                categoryGroup.notify(queue: DispatchQueue.main) {
-                    for i in 0..<MachOData.shared.swiftClasses.count {
-                        if let item = MachOData.shared.swiftClasses[i] {
-                            item.serialization()
-                        }
+                categoryGroup.notify(queue: queuePrint) {
+                    printSwiftType()
+                    printGroup.notify(queue: DispatchQueue.main) {
+                        handle(true)
                     }
-                    handle(true)
+                }
+            }
+        }
+    }
+    
+    static func printSwiftType() {
+        for i in 0..<MachOData.shared.swiftClasses.count {
+            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
+                if let item = MachOData.shared.swiftClasses[i] {
+                    item.serialization()
+                }
+            }
+        }
+        for i in 0..<MachOData.shared.swiftStruct.count {
+            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
+                if let item = MachOData.shared.swiftStruct[i] {
+                    item.serialization()
+                }
+            }
+        }
+        for i in 0..<MachOData.shared.swiftEnum.count {
+            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
+                if let item = MachOData.shared.swiftEnum[i] {
+                    item.serialization()
                 }
             }
         }
@@ -320,11 +345,13 @@ extension Section {
                     break
                 case .Enum:
                     let e = SwiftEnum.SE(binary, offset: offsetS+4, flags: flags)
+                    MachOData.shared.swiftEnum.append(e)
                     MachOData.shared.nominalOffsetMap[offsetS] = e.type.name.swiftName.value
                     MachOData.shared.mangledNameMap[e.type.fieldDescriptor.mangledTypeName.swiftName.value] = e.type.name.swiftName.value
                     break
                 case .Struct:
                     let s = SwiftStruct.SS(binary, offset: offsetS+4, flags: flags)
+                    MachOData.shared.swiftStruct.append(s)
                     MachOData.shared.nominalOffsetMap[offsetS] = s.type.name.swiftName.value
                     MachOData.shared.mangledNameMap[s.type.fieldDescriptor.mangledTypeName.swiftName.value] = s.type.name.swiftName.value
                     break

@@ -37,19 +37,18 @@ struct DataStruct {
             } else {
                 if strData.count > 0 {
                     let strValue = String(data: strData, encoding: String.Encoding.utf8) ?? ""
-                    if demangle {
+                    if demangle && strValue.count > 0 {
                         if let s = swift_demangle(strValue) {
                             #if DEBUG_FLAG
                             return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: s)
                             #endif
                             return DataStruct(address: (Int(offset)-strData.count).string16(), value: s)
                         }
-                    } else {
-                        #if DEBUG_FLAG
-                        return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: strValue)
-                        #endif
-                        return DataStruct(address: (Int(offset)-strData.count).string16(), value: strValue)
                     }
+                    #if DEBUG_FLAG
+                    return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: strValue)
+                    #endif
+                    return DataStruct(address: (Int(offset)-strData.count).string16(), value: strValue)
                 }
             }
             start += 1
