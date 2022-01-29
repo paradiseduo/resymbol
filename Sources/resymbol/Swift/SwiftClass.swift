@@ -50,12 +50,12 @@ struct SwiftClass {
         }
         for item in type.fieldDescriptor.fieldRecords {
             if item.mangledTypeName.swiftName.value.starts(with: "0x") {
-                if item.fixMangledTypeName().count > 0 {
-                    result += "    let \(item.fieldName.swiftName.value): \(item.fixMangledTypeName())\n"
+                let fix = item.fixMangledTypeName()
+                if fix.count > 0 {
+                    result += "    let \(item.fieldName.swiftName.value): \(fix)\n"
                 } else {
                     result += "    let \(item.fieldName.swiftName.value)\n"
                 }
-                
             } else {
                 if item.mangledTypeName.swiftName.value != "00000000" {
                     result += "    let \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
