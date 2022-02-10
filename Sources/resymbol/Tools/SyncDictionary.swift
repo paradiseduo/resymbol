@@ -67,5 +67,9 @@ class SyncDictionary<V: Hashable, T>: Collection {
             self?.dictionary.removeAll()
         }
     }
+    
+    func description() {
+        print(dictionary)
+    }
 
 }

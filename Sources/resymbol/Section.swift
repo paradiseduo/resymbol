@@ -288,6 +288,7 @@ extension Section {
                     offsetS -= offsetS%4
                 }
                 let p = ProtocolDescriptor.PD(binary, offset: offsetS)
+                p.serialization()
                 MachOData.shared.swiftProtocols[offsetS] = p.name.swiftName.value
             }
         }

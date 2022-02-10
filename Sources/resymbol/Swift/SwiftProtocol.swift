@@ -24,6 +24,14 @@ struct ProtocolDescriptor {
         let associatedTypeNames = DataStruct.data(binary, offset: offset+20, length: 4)
         return ProtocolDescriptor(flags: flag, parent: parent, name: name, numRequirementsInSignature: numRequirementsInSignature, numRequirements: numRequirements, associatedTypeNames: associatedTypeNames)
     }
+    
+    func serialization() {
+        if name.swiftName.value.count > 0 {
+            var result = "protocol \(name.swiftName.value) {\n"
+            result += "}\n"
+            print(result)
+        }
+    }
 }
 
 struct NominalTypeDescriptor {

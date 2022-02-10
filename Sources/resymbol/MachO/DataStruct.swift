@@ -37,18 +37,19 @@ struct DataStruct {
             } else {
                 if strData.count > 0 {
                     let strValue = String(data: strData, encoding: String.Encoding.utf8) ?? ""
+                    let address = (Int(offset)-strData.count).string16()
                     if demangle && strValue.count > 0 {
                         if let s = swift_demangle(strValue) {
                             #if DEBUG_FLAG
-                            return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: s)
+                            return DataStruct(address: address, data: strData, dataString: strData.rawValue(), value: s)
                             #endif
-                            return DataStruct(address: (Int(offset)-strData.count).string16(), value: s)
+                            return DataStruct(address: address, value: s)
                         }
                     }
                     #if DEBUG_FLAG
-                    return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: strValue)
+                    return DataStruct(address: address, data: strData, dataString: strData.rawValue(), value: strValue)
                     #endif
-                    return DataStruct(address: (Int(offset)-strData.count).string16(), value: strValue)
+                    return DataStruct(address: address, value: strValue)
                 }
             }
             start += 1
@@ -69,23 +70,28 @@ struct DataStruct {
             } else {
                 if strData.count > 0 {
                     var strValue = ""
+                    let address = (Int(offset)-strData.count).string16()
                     if let s = String(data: strData, encoding: String.Encoding.utf8), s.isAsciiStr() {
                         strValue = s
                     } else {
                         strValue = "0x\(strData.rawValue())"
                     }
-                    if isClassName {
-                        if let s = swift_demangle(strValue) {
+                    if isClassName, let s = swift_demangle(strValue) {
+                        #if DEBUG_FLAG
+                        return DataStruct(address: address, data: strData, dataString: strData.rawValue(), value: s)
+                        #endif
+                        return DataStruct(address: address, value: s)
+                    } else {
+                        let result = getTypeFromMangledName(strValue)
+                        if result == strValue, let s = swift_demangle("$s" + strValue), s != result {
+                            return DataStruct(address: address, value: s)
+                        } else {
                             #if DEBUG_FLAG
-                            return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: s)
+                            return DataStruct(address: address, data: strData, dataString: strData.rawValue(), value: getTypeFromMangledName(strValue))
                             #endif
-                            return DataStruct(address: (Int(offset)-strData.count).string16(), value: s)
+                            return DataStruct(address: address, value: getTypeFromMangledName(strValue))
                         }
                     }
-                    #if DEBUG_FLAG
-                    return DataStruct(address: (Int(offset)-strData.count).string16(), data: strData, dataString: strData.rawValue(), value: getTypeFromMangledName(strValue))
-                    #endif
-                    return DataStruct(address: (Int(offset)-strData.count).string16(), value: getTypeFromMangledName(strValue))
                 }
             }
             start += 1

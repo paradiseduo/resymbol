@@ -129,14 +129,18 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             let subData = data[fromIdx..<toIdx]
             let address = subData.rawValueBig().int16() + startAddress + fromIdx
             let result = MachOData.shared.nominalOffsetMap[address] ?? ""
-            
-            if (i == 0 && toIdx >= data.count) {
-                mangledName = mangledName + result // use original result
-            } else {
-                let fixName = makeDemangledTypeName(result, header: "")
-                mangledName = mangledName + fixName
+            if result.count > 0 {
+                if (i == 0 && toIdx >= data.count) {
+                    mangledName = mangledName + result // use original result
+                } else {
+                    let fixName = makeDemangledTypeName(result, header: "")
+                    mangledName = mangledName + fixName
+                }
+            } else if let s = MachOData.shared.dylbMap[String(address, radix: 16, uppercase: false)] {
+                mangledName = s
+            } else if let s = MachOData.shared.swiftProtocols[address] {
+                mangledName = s
             }
-            
             i += 5
         } else if (val == 0x02) {
             //indirectly
@@ -145,10 +149,14 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             
             let subData = data[fromIdx..<toIdx]
             let address = subData.rawValueBig().int16() + startAddress + fromIdx
-            let dataStruct = DataStruct.data(MachOData.shared.binary, offset: address, length: 4)
-            var result = MachOData.shared.nominalOffsetMap[dataStruct.value.int16()] ?? ""
-            if result.count == 0 {
-                result = MachOData.shared.dylbMap[String(dataStruct.address.int16(), radix: 16, uppercase: false)] ?? ""
+            let newDataStruct = DataStruct.data(MachOData.shared.binary, offset: address, length: 4)
+            var result = ""
+            if let s = MachOData.shared.nominalOffsetMap[newDataStruct.value.int16()] {
+                result = s
+            } else if let s = MachOData.shared.dylbMap[String(newDataStruct.address.int16(), radix: 16, uppercase: false)] {
+                result = s
+            } else if let  s = MachOData.shared.swiftProtocols[newDataStruct.value.int16()] {
+                result = s
             }
             if (i == 0 && toIdx >= data.count) {
                 mangledName = mangledName + result
@@ -163,14 +171,11 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             i += 1
         }
     }
+    if mangledName.hasSuffix("_p") {
+        return mangledName.replacingOccurrences(of: "_p", with: "")
+    }
     if mangledName == "" {
         return dataStruct.value
-    }
-    if mangledName == "SDySo0CG" {
-        return "[Hashable: Any]"
-    }
-    if mangledName == "SaySo0CG" {
-        return "[Any]"
     }
     let result: String = getTypeFromMangledName(mangledName)
     if (result == mangledName) {
@@ -188,6 +193,9 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
 }
 
 func makeDemangledTypeName(_ type: String, header: String) -> String {
+    if type.hasPrefix("_$") {
+        return header + type.replacingOccurrences(of: "_$", with: "_")
+    }
     let isArray: Bool = header.contains("Say") || header.contains("SDy")
     let suffix: String = isArray ? "G" : ""
     let fixName = "So\(type.count)\(type)C" + suffix
