@@ -23,6 +23,9 @@ func swift_demangle(_ mangled: String) -> String? {
         if let cString = f(mangled, mangled.count, nil, nil, 0) {
             defer { cString.deallocate() }
             let result = String(cString: cString).replacingOccurrences(of: "$s", with: "").replacingOccurrences(of: "__C.", with: "")
+            if result.contains("for "), let s = result.components(separatedBy: "for ").last {
+                return s
+            }
             return fixOptionalTypeName(result)
         }
     }
@@ -89,19 +92,104 @@ func getTypeFromMangledName(_ str: String) -> String {
 
 func fixOptionalTypeName(_ typeName: String) -> String {
     if typeName.contains("Optional") {
-        let result = typeName.replacingOccurrences(of: "Swift.Optional", with: "").replacingOccurrences(of: "Optional", with: "")
-        if result.contains("->") {
-            return result.replacingOccurrences(of: "<", with: "(").replacingOccurrences(of: ">", with: ")").replacingOccurrences(of: "-)", with: "->") + "?"
-        } else {
-            return result.replacingOccurrences(of: "<", with: "").replacingOccurrences(of: ">", with: "") + "?"
+        var result = typeName.replacingOccurrences(of: "Swift.Optional", with: "").replacingOccurrences(of: "Optional", with: "")
+        if let s = result.firstIndex(of: "<") {
+            result.remove(at: s)
+            if let e = result.lastIndex(of: ">") {
+                result.remove(at: e)
+            }
         }
+        return result + "?"
     }
     return typeName
 }
 
-func fixArrayTypeName(_ typeName: String) -> String {
-    if typeName.contains("Swift.Array") {
-        return typeName.replacingOccurrences(of: "Swift.Array", with: "").replacingOccurrences(of: "<", with: "[").replacingOccurrences(of: ">", with: "]")
+func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
+    if !dataStruct.value.contains("0x") {
+        return dataStruct.value
     }
-    return typeName
+    let hexName: String = dataStruct.value.ltrim("0x")
+    let data = hexName.hexData
+    let startAddress = data.count+dataStruct.address.int16()
+    
+    var mangledName: String = ""
+    var i: Int = 0
+    
+    while i < data.count {
+        let val = data[i]
+        if (val == 0x01) {
+            //find
+            let fromIdx: Int = i + 1 // ignore 0x01
+            let toIdx: Int = i + 5 // 4 bytes
+            if (toIdx > data.count) {
+                mangledName = mangledName + String(format: "%c", val)
+                i += 1
+                continue
+            }
+            let subData = data[fromIdx..<toIdx]
+            let address = subData.rawValueBig().int16() + startAddress + fromIdx
+            let result = MachOData.shared.nominalOffsetMap[address] ?? ""
+            
+            if (i == 0 && toIdx >= data.count) {
+                mangledName = mangledName + result // use original result
+            } else {
+                let fixName = makeDemangledTypeName(result, header: "")
+                mangledName = mangledName + fixName
+            }
+            
+            i += 5
+        } else if (val == 0x02) {
+            //indirectly
+            let fromIdx: Int = i + 1 // ignore 0x02
+            let toIdx: Int = ((i + 4) > data.count) ? data.count : (i + 4) // 4 bytes
+            
+            let subData = data[fromIdx..<toIdx]
+            let address = subData.rawValueBig().int16() + startAddress + fromIdx
+            let dataStruct = DataStruct.data(MachOData.shared.binary, offset: address, length: 4)
+            var result = MachOData.shared.nominalOffsetMap[dataStruct.value.int16()] ?? ""
+            if result.count == 0 {
+                result = MachOData.shared.dylbMap[String(dataStruct.address.int16(), radix: 16, uppercase: false)] ?? ""
+            }
+            if (i == 0 && toIdx >= data.count) {
+                mangledName = mangledName + result
+            } else {
+                let fixName = makeDemangledTypeName(result, header: mangledName)
+                mangledName = mangledName + fixName
+            }
+            i = toIdx + 1
+        } else {
+            //check next
+            mangledName = mangledName + String(format: "%c", val)
+            i += 1
+        }
+    }
+    if mangledName == "" {
+        return dataStruct.value
+    }
+    if mangledName == "SDySo0CG" {
+        return "[Hashable: Any]"
+    }
+    if mangledName == "SaySo0CG" {
+        return "[Any]"
+    }
+    let result: String = getTypeFromMangledName(mangledName)
+    if (result == mangledName) {
+        if mangledName.contains("$s") {
+            if let s = swift_demangle(mangledName) {
+                return s
+            }
+        } else {
+            if let s = swift_demangle("$s" + mangledName) {
+                return s
+            }
+        }
+    }
+    return result
+}
+
+func makeDemangledTypeName(_ type: String, header: String) -> String {
+    let isArray: Bool = header.contains("Say") || header.contains("SDy")
+    let suffix: String = isArray ? "G" : ""
+    let fixName = "So\(type.count)\(type)C" + suffix
+    return fixName
 }

@@ -84,6 +84,10 @@ struct Section {
                                 handle__swift5_protos(binary, section: section)
                             } else if sectname == "__swift5_types" {
                                 swiftTypeSection = section
+                            } else if sectname.contains("__swift5_typeref") || sectname.contains("__swift5_reflstr") {
+                                handle__swift5_ref(binary, section: section)
+                            } else if sectname.contains("__swift5_assocty") {
+//                                handle__swift5_assocty(binary, section: section)
                             }
                         }
                         offset_segment += 0x50
@@ -355,12 +359,21 @@ extension Section {
                     MachOData.shared.nominalOffsetMap[offsetS] = s.type.name.swiftName.value
                     MachOData.shared.mangledNameMap[s.type.fieldDescriptor.mangledTypeName.swiftName.value] = s.type.name.swiftName.value
                     break
-                case .Extension:
-                    break
                 default:
                     break
                 }
             }
+        }
+    }
+    
+    private static func handle__swift5_assocty(_ binary: Data, section: section_64) {
+        var index = Int(section.offset)
+        let end = Int(section.offset) + Int(section.size)
+        while index < end {
+            let s = SwiftAssocty.SA(binary, offset: &index)
+//            print("youshaoduo", fixMangledTypeName(s.conformingTypeName.swiftName))
+//            print("youshaoze", fixMangledTypeName(s.protocolTypeName.swiftName))
+            print(s)
         }
     }
 }
@@ -391,6 +404,26 @@ extension Section {
                 print("\(nlist.valueAddress.value) \(nlist.name.count > 0 ? nlist.name : "PD\(i)")")
             } else {
                 MachOData.shared.symbolTable[nlist.valueAddress.value] = nlist.name.count > 0 ? nlist.name : "PD\(i)"
+            }
+        }
+    }
+    
+    private static func handle__swift5_ref(_ binary: Data, section: section_64) {
+        queueSymbol.async(group: dyldGroup) {
+            let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+            var index = 0
+            while index < stringTable.count {
+                var strData = Data()
+                var item = stringTable[index]
+                while item != 0 {
+                    strData.append(item)
+                    index += 1
+                    item = stringTable[index]
+                }
+                if let s = String(data: strData, encoding: String.Encoding.utf8), s.count > 0 {
+                    MachOData.shared.nominalOffsetMap[Int(section.offset)+index-s.count] = s
+                }
+                index += 1
             }
         }
     }

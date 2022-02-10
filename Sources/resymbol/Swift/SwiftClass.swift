@@ -50,7 +50,7 @@ struct SwiftClass {
         }
         for item in type.fieldDescriptor.fieldRecords {
             if item.mangledTypeName.swiftName.value.starts(with: "0x") {
-                let fix = item.fixMangledTypeName()
+                let fix = fixMangledTypeName(item.mangledTypeName.swiftName)
                 if fix.count > 0 {
                     result += "    let \(item.fieldName.swiftName.value): \(fix)\n"
                 } else {
