@@ -173,6 +173,8 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
     }
     if mangledName.hasSuffix("_p") {
         return mangledName.replacingOccurrences(of: "_p", with: "")
+    } else if mangledName.hasSuffix("_pSgXw") {
+        return mangledName.replacingOccurrences(of: "_pSgXw", with: "?")
     }
     if mangledName == "" {
         return dataStruct.value
