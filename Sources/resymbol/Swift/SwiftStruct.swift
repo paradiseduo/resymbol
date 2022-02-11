@@ -16,25 +16,25 @@ struct SwiftStruct {
         let type = SwiftType.ST(binary, offset: offset, flags: flags)
         let numFields = DataStruct.data(binary, offset: offset+16, length: 4)
         let fieldOffsetVectorOffset = DataStruct.data(binary, offset: offset+20, length: 4)
-        
         return SwiftStruct(type: type, numFields: numFields, fieldOffsetVectorOffset: fieldOffsetVectorOffset)
     }
     
     func serialization() {
         var result = "\(type.flags.kind.description) \(type.name.swiftName.value) {\n"
         for item in type.fieldDescriptor.fieldRecords {
+            let front = item.flags.isVar ? "var" : "let"
             if item.mangledTypeName.swiftName.value.starts(with: "0x") {
                 let fix = fixMangledTypeName(item.mangledTypeName.swiftName)
                 if fix.count > 0 {
-                    result += "    let \(item.fieldName.swiftName.value): \(fix)\n"
+                    result += "    \(front) \(item.fieldName.swiftName.value): \(fix)\n"
                 } else {
-                    result += "    let \(item.fieldName.swiftName.value)\n"
+                    result += "    \(front) \(item.fieldName.swiftName.value)\n"
                 }
             } else {
                 if item.mangledTypeName.swiftName.value != "00000000" {
-                    result += "    let \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
+                    result += "    \(front) \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
                 } else {
-                    result += "    let \(item.fieldName.swiftName.value)\n"
+                    result += "    \(front) \(item.fieldName.swiftName.value)\n"
                 }
             }
         }

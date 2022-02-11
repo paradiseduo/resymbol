@@ -87,7 +87,7 @@ struct Section {
                             } else if sectname.contains("__swift5_typeref") || sectname.contains("__swift5_reflstr") {
                                 handle__swift5_ref(binary, section: section)
                             } else if sectname.contains("__swift5_assocty") {
-//                                handle__swift5_assocty(binary, section: section)
+                                handle__swift5_assocty(binary, section: section)
                             }
                         }
                         offset_segment += 0x50
@@ -372,9 +372,7 @@ extension Section {
         let end = Int(section.offset) + Int(section.size)
         while index < end {
             let s = SwiftAssocty.SA(binary, offset: &index)
-//            print("youshaoduo", fixMangledTypeName(s.conformingTypeName.swiftName))
-//            print("youshaoze", fixMangledTypeName(s.protocolTypeName.swiftName))
-            print(s)
+//            print(s)
         }
     }
 }

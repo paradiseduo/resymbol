@@ -49,18 +49,19 @@ struct SwiftClass {
             result += " {\n"
         }
         for item in type.fieldDescriptor.fieldRecords {
+            let front = item.flags.isVar ? "var" : "let"
             if item.mangledTypeName.swiftName.value.starts(with: "0x") {
                 let fix = fixMangledTypeName(item.mangledTypeName.swiftName)
                 if fix.count > 0 {
-                    result += "    let \(item.fieldName.swiftName.value): \(fix)\n"
+                    result += "    \(front) \(item.fieldName.swiftName.value): \(fix)\n"
                 } else {
-                    result += "    let \(item.fieldName.swiftName.value)\n"
+                    result += "    \(front) \(item.fieldName.swiftName.value)\n"
                 }
             } else {
                 if item.mangledTypeName.swiftName.value != "00000000" {
-                    result += "    let \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
+                    result += "    \(front) \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
                 } else {
-                    result += "    let \(item.fieldName.swiftName.value)\n"
+                    result += "    \(front) \(item.fieldName.swiftName.value)\n"
                 }
             }
         }
