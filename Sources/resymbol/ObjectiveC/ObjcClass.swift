@@ -13,7 +13,7 @@ struct ObjcSuperClass {
     
     static func OSC(_ binary: Data, offset: Int) -> ObjcSuperClass {
         let superClass = DataStruct.data(binary, offset: offset, length: 8)
-        let superClassName = MachOData.shared.dylbMap.getReplace(address: superClass.address.ltrim("0")) ?? ""
+        let superClassName = fixSymbolName(MachOData.shared.dylbMap[superClass.address.ltrim("0")]) ?? ""
         return ObjcSuperClass(superClass: superClass, superClassName: superClassName)
     }
 }
@@ -104,7 +104,7 @@ struct ObjcClassRO {
         let instanceSize = DataStruct.data(binary, offset: offset+8, length: 4)
         let reserved = DataStruct.data(binary, offset: offset+12, length: 4)
         let ivarlayout = DataStruct.data(binary, offset: offset+16, length: 8)
-        let name = ClassName.className(binary, startOffset: offset+24)
+        let name = ClassName.className(binary, startOffset: offset+24, isSwiftClass: isSwiftClass)
         
         let baseMethod = Methods.methods(binary, startOffset: offset+32, typeOffSet: &typeOffset)
         let baseProtocol = Protocols.protocols(binary, startOffset: offset+40)

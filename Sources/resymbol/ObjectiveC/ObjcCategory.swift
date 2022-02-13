@@ -20,7 +20,7 @@ struct ObjcCategory {
     
     static func OCCG(_ binary: Data, offset: Int) -> ObjcCategory {
         var typeOffset = 0
-        let name = ClassName.className(binary, startOffset: offset)
+        let name = ClassName.className(binary, startOffset: offset, isSwiftClass: true)
         let classs = DataStruct.data(binary, offset: offset+8, length: 8)
         let instanceMethods = Methods.methods(binary, startOffset: offset+16, typeOffSet: &typeOffset)
         let classMethods = Methods.methods(binary, startOffset: offset+24, typeOffSet: &typeOffset)
@@ -29,8 +29,12 @@ struct ObjcCategory {
         let v7 = DataStruct.data(binary, offset: offset+48, length: 8)
         let v8 = DataStruct.data(binary, offset: offset+56, length: 8)
         
-        let key = String(name.name.address.int16()+8, radix: 16, uppercase: false)
-        let externalClassName = MachOData.shared.dylbMap.getReplace(address: key) ?? MachOData.shared.objcClasses.get(address: classs.value)
+        var key = String(name.name.address.int16()+8, radix: 16, uppercase: false)
+        var externalClassName = fixSymbolName(MachOData.shared.dylbMap[key]) ?? (MachOData.shared.objcClasses[classs.value.int16Replace()] ?? "")
+        if externalClassName == "" {
+            key = "00000001" + name.name.address
+            externalClassName = fixSymbolName(MachOData.shared.symbolTable[key]) ?? ""
+        }
         
         return ObjcCategory(name: name, classs: classs, instanceMethods: instanceMethods, classMethods: classMethods, protocols: protocols, instanceProperties: instanceProperties, v7: v7, v8: v8, externalClassName: externalClassName)
     }

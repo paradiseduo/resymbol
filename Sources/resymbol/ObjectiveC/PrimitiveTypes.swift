@@ -38,7 +38,7 @@ import Foundation
 // :: SEL
 // %: NXAtom
 // ?: void
-//case '?': return @"UNKNOWN"; // For easier regression testing.
+//case '?': return @"UNKNOWN" // For easier regression testing.
 // j: _Complex - is this a modifier or a primitive type?
 //
 // modifier (which?) w/ _subtype.  Can we limit these to the top level of the type?
@@ -74,6 +74,9 @@ func grepStructName(_ type: String) -> String {
 func primitiveType(_ type: String) -> String {
     if type.count == 0 {
         return "MISSING_TYPE"
+    }
+    if type == "00000000" {
+        return "Swift.Type"
     }
     var result = ""
     let grepType = grepStructName(type)
@@ -207,18 +210,10 @@ func checkType(_ item: String) -> String {
     if item.hasPrefix("@\"") && item.hasSuffix("\"") {
         if item.contains("<") && item.contains(">") {
             // 代理属性
-            if let s = swift_demangle(item.replacingOccurrences(of: "@", with: "").replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "<", with: "").replacingOccurrences(of: ">", with: "")) {
-                return "id <" + s + "> *"
-            } else {
-                return "id <" + item.filter({ String($0).rangeOfCharacter(from: CharacterSet.letters) != nil }) + "> *"
-            }
+            return "id <" + getTypeFromMangledName(item.replacingOccurrences(of: "@", with: "").replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "<", with: "").replacingOccurrences(of: ">", with: "")) + "> *"
         } else {
             // 其他属性
-            if let s = swift_demangle(item.replacingOccurrences(of: "@", with: "").replacingOccurrences(of: "\"", with: "")) {
-                return s + " *"
-            } else {
-                return item.filter({ String($0).rangeOfCharacter(from: CharacterSet.letters) != nil }) + " *"
-            }
+            return getTypeFromMangledName(item.replacingOccurrences(of: "@", with: "").replacingOccurrences(of: "\"", with: "")) + " *"
         }
     } else {
         switch item {
