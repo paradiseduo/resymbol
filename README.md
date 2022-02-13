@@ -5,6 +5,7 @@ A reverse engineering tool to restore stripped symbol table and dump Objective-C
 ## class-dump
 ```
 ❯ git clone https://github.com/paradiseduo/resymbol.git
+❯ cd resymbol
 ❯ ./build-macOS_x86.sh
 ❯ ./resymbol
 OVERVIEW: resymbol v1.0.0
@@ -73,6 +74,7 @@ To do...
 
 
 ## Thanks
+
 https://github.com/neil-wu/SwiftDump
 
 https://github.com/nygard/class-dump
