@@ -70,3 +70,9 @@ struct mach_header_64 {
 
 ## restore symbol table
 To do...
+
+
+## Thanks
+https://github.com/neil-wu/SwiftDump
+https://github.com/nygard/class-dump
+https://juejin.cn/post/6919034854159941645
