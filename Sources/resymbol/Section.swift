@@ -26,9 +26,12 @@ let queueSwiftTypes = DispatchQueue(label: "com.Swift.Types", qos: .unspecified,
 // 再进行category的dump，因为category依赖于class list和dyld
 let categoryGroup = DispatchGroup()
 let queueCategory = DispatchQueue(label: "com.Category", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSwiftAssocty = DispatchQueue(label: "com.Swift.Assocty", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
 let printGroup = DispatchGroup()
 let queuePrint = DispatchQueue(label: "com.Print", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSwiftBuiltin = DispatchQueue(label: "com.Swift.Builtin", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSwiftCapture = DispatchQueue(label: "com.Swift.Capture", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
 let activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount/2
 
@@ -45,6 +48,9 @@ struct Section {
         var classSections = [section_64]()
         var swiftProtoSection: section_64?
         var swiftTypeSection: section_64?
+        var assocty: section_64?
+        var builtin: section_64?
+        var capture: section_64?
         var needSymbol = false
         
         let header = binary.extract(mach_header_64.self)
@@ -80,14 +86,18 @@ struct Section {
                             let sectname = String(rawCChar: section.sectname)
                             if sectname == "__swift5_proto" {
                                 swiftProtoSection = section
-                            } else if sectname == "__swift5_protos" {
+                            } else if sectname.contains("__swift5_protos") {
                                 handle__swift5_protos(binary, section: section)
-                            } else if sectname == "__swift5_types" {
+                            } else if sectname.contains("__swift5_types") {
                                 swiftTypeSection = section
                             } else if sectname.contains("__swift5_typeref") || sectname.contains("__swift5_reflstr") {
                                 handle__swift5_ref(binary, section: section)
                             } else if sectname.contains("__swift5_assocty") {
-                                handle__swift5_assocty(binary, section: section)
+                                assocty = section
+                            } else if sectname.contains("__swift5_builtin") {
+                                builtin = section
+                            } else if sectname.contains("__swift5_capture") {
+                                capture = section
                             }
                         }
                         offset_segment += 0x50
@@ -124,7 +134,16 @@ struct Section {
                 for section in categorySections {
                     handle__objc_catlist(binary, section: section)
                 }
+                if let section = assocty {
+                    handle__swift5_assocty(binary, section: section)
+                }
                 categoryGroup.notify(queue: queuePrint) {
+                    if let section = builtin {
+                        handle__swift5_builtin(binary, section: section)
+                    }
+                    if let section = capture {
+                        handle__swift5_capture(binary, section: section)
+                    }
                     printSwiftType()
                     printGroup.notify(queue: DispatchQueue.main) {
                         handle(true)
@@ -368,11 +387,32 @@ extension Section {
     }
     
     private static func handle__swift5_assocty(_ binary: Data, section: section_64) {
-        var index = Int(section.offset)
-        let end = Int(section.offset) + Int(section.size)
-        while index < end {
-            let s = SwiftAssocty.SA(binary, offset: &index)
-//            print(s)
+        queueSwiftAssocty.async(group: categoryGroup) {
+            var index = Int(section.offset)
+            let end = Int(section.offset) + Int(section.size)
+            while index < end {
+                SwiftAssocty.SA(binary, offset: &index).serialization()
+            }
+        }
+    }
+    
+    private static func handle__swift5_builtin(_ binary: Data, section: section_64) {
+        queueSwiftBuiltin.async(group: printGroup) {
+            var index = Int(section.offset)
+            let end = Int(section.offset) + Int(section.size)
+            while index < end {
+                SwiftBuiltin.SB(binary, offset: &index).serialization()
+            }
+        }
+    }
+    
+    private static func handle__swift5_capture(_ binary: Data, section: section_64) {
+        queueSwiftCapture.async(group: printGroup) {
+            var index = Int(section.offset)
+            let end = Int(section.offset) + Int(section.size)
+            while index < end {
+                SwiftCapture.SC(binary, offset: &index).serialization()
+            }
         }
     }
 }

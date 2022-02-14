@@ -128,18 +128,21 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             }
             let subData = data[fromIdx..<toIdx]
             let address = subData.rawValueBig().int16() + startAddress + fromIdx
-            let result = MachOData.shared.nominalOffsetMap[address] ?? ""
-            if result.count > 0 {
-                if (i == 0 && toIdx >= data.count) {
-                    mangledName = mangledName + result // use original result
-                } else {
-                    let fixName = makeDemangledTypeName(result, header: "")
-                    mangledName = mangledName + fixName
-                }
+            var result = ""
+            if let s = MachOData.shared.mangledNameMap[dataStruct.value] {
+                result = s
+            } else if let s = MachOData.shared.nominalOffsetMap[address] {
+                result = s
             } else if let s = MachOData.shared.dylbMap[String(address, radix: 16, uppercase: false)] {
-                mangledName = s
+                result = s
             } else if let s = MachOData.shared.swiftProtocols[address] {
-                mangledName = s
+                result = s
+            }
+            if (i == 0 && toIdx >= data.count) {
+                mangledName = mangledName + result // use original result
+            } else {
+                let fixName = makeDemangledTypeName(result, header: "")
+                mangledName = mangledName + fixName
             }
             i += 5
         } else if (val == 0x02) {
@@ -151,7 +154,9 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             let address = subData.rawValueBig().int16() + startAddress + fromIdx
             let newDataStruct = DataStruct.data(MachOData.shared.binary, offset: address, length: 4)
             var result = ""
-            if let s = MachOData.shared.nominalOffsetMap[newDataStruct.value.int16()] {
+            if let s = MachOData.shared.mangledNameMap[dataStruct.value] {
+                result = s
+            } else if let s = MachOData.shared.nominalOffsetMap[newDataStruct.value.int16()] {
                 result = s
             } else if let s = MachOData.shared.dylbMap[String(newDataStruct.address.int16(), radix: 16, uppercase: false)] {
                 result = s

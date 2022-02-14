@@ -26,12 +26,6 @@ class MachOData {
     var swiftStruct = SyncArray<SwiftStruct>("SwiftStructArraySyncQueue")
     var swiftEnum = SyncArray<SwiftEnum>("SwiftEnumArraySyncQueue")
     
-    var categorySections = [section_64]()
-    var classSections = [section_64]()
-    var protocolSection: section_64?
-    var swiftProtoSection: section_64?
-    var swiftTypeSection: section_64?
-    
     private init() {}
 }
 
