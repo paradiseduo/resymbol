@@ -27,11 +27,11 @@ let queueSwiftTypes = DispatchQueue(label: "com.Swift.Types", qos: .unspecified,
 let categoryGroup = DispatchGroup()
 let queueCategory = DispatchQueue(label: "com.Category", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 let queueSwiftAssocty = DispatchQueue(label: "com.Swift.Assocty", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSwiftBuiltin = DispatchQueue(label: "com.Swift.Builtin", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSwiftCapture = DispatchQueue(label: "com.Swift.Capture", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
 let printGroup = DispatchGroup()
 let queuePrint = DispatchQueue(label: "com.Print", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSwiftBuiltin = DispatchQueue(label: "com.Swift.Builtin", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSwiftCapture = DispatchQueue(label: "com.Swift.Capture", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
 let activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount/2
 
@@ -137,13 +137,13 @@ struct Section {
                 if let section = assocty {
                     handle__swift5_assocty(binary, section: section)
                 }
+                if let section = builtin {
+                    handle__swift5_builtin(binary, section: section)
+                }
+                if let section = capture {
+                    handle__swift5_capture(binary, section: section)
+                }
                 categoryGroup.notify(queue: queuePrint) {
-                    if let section = builtin {
-                        handle__swift5_builtin(binary, section: section)
-                    }
-                    if let section = capture {
-                        handle__swift5_capture(binary, section: section)
-                    }
                     printSwiftType()
                     printGroup.notify(queue: DispatchQueue.main) {
                         handle(true)
@@ -204,13 +204,9 @@ struct Section {
         if isByteSwapped {
             swap_dyld_info_command(&dylib, byteSwappedOrder)
         }
-        queueDyld.async(group: dyldGroup) {
+        DispatchLimitQueue.shared.limit(queue: queueDyld, group: dyldGroup, count: activeProcessorCount){
             Dyld.binding(binary, vmAddress: vmAddress, start: Int(dylib.bind_off), end: Int(dylib.bind_off+dylib.bind_size))
-        }
-        queueDyld.async(group: dyldGroup) {
             Dyld.binding(binary, vmAddress: vmAddress, start: Int(dylib.weak_bind_off), end: Int(dylib.weak_bind_off+dylib.weak_bind_size))
-        }
-        queueDyld.async(group: dyldGroup) {
             Dyld.binding(binary, vmAddress: vmAddress, start: Int(dylib.lazy_bind_off), end: Int(dylib.lazy_bind_off+dylib.lazy_bind_size), isLazy: true)
         }
     }
@@ -220,10 +216,8 @@ struct Section {
         if isByteSwapped {
             swap_symtab_command(&symtab, byteSwappedOrder)
         }
-        queueSymbol.async(group: dyldGroup) {
+        DispatchLimitQueue.shared.limit(queue: queueSymbol, group: dyldGroup, count: activeProcessorCount) {
             handle_string_table(binary, symtab: symtab)
-        }
-        queueSymbol.async(group: dyldGroup) {
             handle_symbol_table(binary, symtab: symtab, dumpSymbol: dumpSymbol)
         }
     }
@@ -387,7 +381,7 @@ extension Section {
     }
     
     private static func handle__swift5_assocty(_ binary: Data, section: section_64) {
-        queueSwiftAssocty.async(group: categoryGroup) {
+        DispatchLimitQueue.shared.limit(queue: queueSwiftAssocty, group: categoryGroup, count: activeProcessorCount) {
             var index = Int(section.offset)
             let end = Int(section.offset) + Int(section.size)
             while index < end {
@@ -397,7 +391,7 @@ extension Section {
     }
     
     private static func handle__swift5_builtin(_ binary: Data, section: section_64) {
-        queueSwiftBuiltin.async(group: printGroup) {
+        DispatchLimitQueue.shared.limit(queue: queueSwiftBuiltin, group: categoryGroup, count: activeProcessorCount) {
             var index = Int(section.offset)
             let end = Int(section.offset) + Int(section.size)
             while index < end {
@@ -407,7 +401,7 @@ extension Section {
     }
     
     private static func handle__swift5_capture(_ binary: Data, section: section_64) {
-        queueSwiftCapture.async(group: printGroup) {
+        DispatchLimitQueue.shared.limit(queue: queueSwiftCapture, group: categoryGroup, count: activeProcessorCount) {
             var index = Int(section.offset)
             let end = Int(section.offset) + Int(section.size)
             while index < end {
@@ -448,7 +442,7 @@ extension Section {
     }
     
     private static func handle__swift5_ref(_ binary: Data, section: section_64) {
-        queueSymbol.async(group: dyldGroup) {
+        DispatchLimitQueue.shared.limit(queue: queueSymbol, group: dyldGroup, count: activeProcessorCount) {
             let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
             var index = 0
             while index < stringTable.count {
