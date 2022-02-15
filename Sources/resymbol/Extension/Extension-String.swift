@@ -75,19 +75,36 @@ extension String {
         return raw + rva
     }
     
-    func ltrim(_ chars: String) -> String {
+    func removingPrefix(_ chars: String) -> String {
         if hasPrefix(chars) {
             return String(dropFirst(chars.count))
         }
         return self
     }
     
-    func rtrim(_ chars: String) -> String {
+    func removingSuffix(_ chars: String) -> String {
         if hasSuffix(chars) {
             return String(dropLast(chars.count))
         }
         return self
     }
+    
+    func ltrim(_ chars: String) -> String {
+        if let index = firstIndex(where: {!chars.contains($0)}) {
+            return String(self[index..<endIndex])
+        } else {
+            return self
+        }
+    }
+    
+    func rtrim(_ chars: String) -> String {
+        if let index = lastIndex(where: {!chars.contains($0)}) {
+            return String(self[startIndex...index])
+        } else {
+            return self
+        }
+    }
+
     
     func isAsciiStr() -> Bool {
         return range(of: ".*[^A-Za-z0-9_$ ].*", options: .regularExpression) == nil

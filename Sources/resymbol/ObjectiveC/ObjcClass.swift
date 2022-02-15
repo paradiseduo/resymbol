@@ -7,20 +7,9 @@
 
 import Foundation
 
-struct ObjcSuperClass {
-    let superClass: DataStruct
-    let superClassName: String
-    
-    static func OSC(_ binary: Data, offset: Int) -> ObjcSuperClass {
-        let superClass = DataStruct.data(binary, offset: offset, length: 8)
-        let superClassName = fixSymbolName(MachOData.shared.dylbMap[superClass.address.ltrim("0")]) ?? ""
-        return ObjcSuperClass(superClass: superClass, superClassName: superClassName)
-    }
-}
-
 struct ObjcClass {
     let isa: DataStruct
-    let superClass: ObjcSuperClass
+    let superClass: DataStruct
     let cache: DataStruct
     let cacheMask: DataStruct
     let cacheOccupied: DataStruct
@@ -34,7 +23,7 @@ struct ObjcClass {
     
     static func OC(_ binary: Data, offset: Int) -> ObjcClass {
         let isa = DataStruct.data(binary, offset: offset, length: 8)
-        let superClass = ObjcSuperClass.OSC(binary, offset: offset+8)
+        let superClass = DataStruct.data(binary, offset: offset+8, length: 8)
         let cache = DataStruct.data(binary, offset: offset+16, length: 8)
         let cacheMask = DataStruct.data(binary, offset: offset+24, length: 4)
         let cacheOccupied = DataStruct.data(binary, offset: offset+28, length: 4)
@@ -55,7 +44,8 @@ struct ObjcClass {
     }
     
     func serialization() {
-        var result = "@interface \(classRO.name.className.value) \(superClass.superClassName.count > 0 ? ": \(superClass.superClassName)" : "") \(classRO.baseProtocol.serialization()) //0x\(isa.address)\n"
+        let superClassName = fixSymbolName(MachOData.shared.dylbMap[superClass.address.ltrim("0")]) ?? ""
+        var result = "@interface \(classRO.name.className.value) \(superClassName.count > 0 ? ":\(superClassName)" : "") \(classRO.baseProtocol.serialization()) //0x\(isa.address)\n"
         if let instanceVariables = classRO.ivars.instanceVariables {
             result += "{\n"
             for item in instanceVariables {
