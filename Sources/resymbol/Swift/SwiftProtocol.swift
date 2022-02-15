@@ -50,7 +50,7 @@ struct SwiftProtocol {
     let nominalTypeDescriptor: NominalTypeDescriptor
     let protocolWitnessTable: DataStruct
     let conformanceFlags: DataStruct
-    let protocolName: String
+    let protocolNameKey: Int
     
     static func SP(_ binary: Data, offset: Int) -> SwiftProtocol {
         let protocolsDescriptor = DataStruct.data(binary, offset: offset, length: 4)
@@ -59,19 +59,19 @@ struct SwiftProtocol {
         let conformanceFlags = DataStruct.data(binary, offset: offset+12, length: 4)
         
         let newOffSet = protocolsDescriptor.value.int16()
-        var key = 0
+        var protocolNameKey = 0
         if ((newOffSet & 0x1) == 1) { //如果是奇数
             // 相当于减1
-            key = DataStruct.data(binary, offset: (newOffSet&0xFFFE)+offset, length: 4).value.int16()
+            protocolNameKey = DataStruct.data(binary, offset: (newOffSet&0xFFFE)+offset, length: 4).value.int16()
         } else {
-            key = newOffSet+offset
+            protocolNameKey = newOffSet+offset
         }
-        let protocolName = MachOData.shared.swiftProtocols[key] ?? ""
-        return SwiftProtocol(protocolsDescriptor: protocolsDescriptor, nominalTypeDescriptor: nominalTypeDescriptor, protocolWitnessTable: protocolWitnessTable, conformanceFlags: conformanceFlags, protocolName: protocolName)
+        
+        return SwiftProtocol(protocolsDescriptor: protocolsDescriptor, nominalTypeDescriptor: nominalTypeDescriptor, protocolWitnessTable: protocolWitnessTable, conformanceFlags: conformanceFlags, protocolNameKey: protocolNameKey)
     }
     
-    func serialization() {
-        if protocolName.count > 0 {
+    func serialization() async {
+        if let protocolName = await MachOData.shared.swiftProtocols.get(protocolNameKey) {
             var result = "protocol \(protocolName) {\n"
             result += "}\n"
             print(result)

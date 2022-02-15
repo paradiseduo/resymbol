@@ -39,11 +39,11 @@ struct SwiftClass {
         return SwiftClass(type: type, superclassType: superclassType, metadataNegativeSizeInWords: metadataNegativeSizeInWords, metadataPositiveSizeInWords: metadataPositiveSizeInWords, numImmediateMembers: numImmediateMembers, numFields: numFields, fieldOffsetVectorOffset: fieldOffsetVectorOffset)
     }
     
-    func serialization() {
+    func serialization() async {
         var result = "\(type.flags.kind.description) \(type.name.swiftName.value)"
         if superclassType.superclassType.value != "00000000" {
             if superclassType.superclassType.value.starts(with: "0x") {
-                result += ": \(fixMangledTypeName(superclassType.superclassType)) {\n"
+                result += ": \(await fixMangledTypeName(superclassType.superclassType)) {\n"
             } else {
                 result += ": \(superclassType.superclassType.value) {\n"
             }
@@ -53,7 +53,7 @@ struct SwiftClass {
         for item in type.fieldDescriptor.fieldRecords {
             let front = item.flags.isVar ? "var" : "let"
             if item.mangledTypeName.swiftName.value.starts(with: "0x") {
-                let fix = fixMangledTypeName(item.mangledTypeName.swiftName)
+                let fix = await fixMangledTypeName(item.mangledTypeName.swiftName)
                 if fix.count > 0 {
                     result += "    \(front) \(item.fieldName.swiftName.value): \(fix)\n"
                 } else {

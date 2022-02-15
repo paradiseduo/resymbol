@@ -19,12 +19,12 @@ struct SwiftStruct {
         return SwiftStruct(type: type, numFields: numFields, fieldOffsetVectorOffset: fieldOffsetVectorOffset)
     }
     
-    func serialization() {
+    func serialization() async {
         var result = "\(type.flags.kind.description) \(type.name.swiftName.value) {\n"
         for item in type.fieldDescriptor.fieldRecords {
             let front = item.flags.isVar ? "var" : "let"
             if item.mangledTypeName.swiftName.value.starts(with: "0x") {
-                let fix = fixMangledTypeName(item.mangledTypeName.swiftName)
+                let fix = await fixMangledTypeName(item.mangledTypeName.swiftName)
                 if fix.count > 0 {
                     result += "    \(front) \(item.fieldName.swiftName.value): \(fix)\n"
                 } else {

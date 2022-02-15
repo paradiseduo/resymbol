@@ -16,7 +16,6 @@ struct ObjcCategory {
     let instanceProperties: Properties
     let v7: DataStruct
     let v8: DataStruct
-    var externalClassName: String?
     
     static func OCCG(_ binary: Data, offset: Int) -> ObjcCategory {
         var typeOffset = 0
@@ -29,18 +28,26 @@ struct ObjcCategory {
         let v7 = DataStruct.data(binary, offset: offset+48, length: 8)
         let v8 = DataStruct.data(binary, offset: offset+56, length: 8)
         
-        var key = String(name.name.address.int16()+8, radix: 16, uppercase: false)
-        var externalClassName = fixSymbolName(MachOData.shared.dylbMap[key]) ?? (MachOData.shared.objcClasses[classs.value.int16Replace()] ?? "")
-        if externalClassName == "" {
-            key = "00000001" + name.name.address
-            externalClassName = fixSymbolName(MachOData.shared.symbolTable[key]) ?? ""
-        }
-        
-        return ObjcCategory(name: name, classs: classs, instanceMethods: instanceMethods, classMethods: classMethods, protocols: protocols, instanceProperties: instanceProperties, v7: v7, v8: v8, externalClassName: externalClassName)
+        return ObjcCategory(name: name, classs: classs, instanceMethods: instanceMethods, classMethods: classMethods, protocols: protocols, instanceProperties: instanceProperties, v7: v7, v8: v8)
     }
     
-    func serialization() {
-        var result = "@interface \(externalClassName ?? "")(\(name.className.value)) \(protocols.serialization()) //0x\(name.name.address) \n"
+    func serialization() async {
+        var key = String(name.name.address.int16()+8, radix: 16, uppercase: false)
+        var externalClassName = ""
+        if let s = await MachOData.shared.dylbMap.get(key) {
+            externalClassName = fixSymbolName(s)
+        } else if let s = await MachOData.shared.objcClasses.get(classs.value.int16Replace()) {
+            externalClassName = fixSymbolName(s)
+        }
+        
+        if externalClassName == "" {
+            key = "00000001" + name.name.address
+            if let s = await MachOData.shared.symbolTable.get(key) {
+                externalClassName = fixSymbolName(s)
+            }
+        }
+        
+        var result = "@interface \(externalClassName)(\(name.className.value)) \(await protocols.serialization()) //0x\(name.name.address) \n"
         if let properties = instanceProperties.properties {
             for item in properties {
                 result += "\(item.serialization()) //0x\(item.name.name.address)\n"

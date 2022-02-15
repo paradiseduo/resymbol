@@ -9,12 +9,10 @@ import Foundation
 
 struct ObjcSuperClass {
     let superClass: DataStruct
-    let superClassName: String
     
     static func OSC(_ binary: Data, offset: Int) -> ObjcSuperClass {
         let superClass = DataStruct.data(binary, offset: offset, length: 8)
-        let superClassName = fixSymbolName(MachOData.shared.dylbMap[superClass.address.ltrim("0")]) ?? ""
-        return ObjcSuperClass(superClass: superClass, superClassName: superClassName)
+        return ObjcSuperClass(superClass: superClass)
     }
 }
 
@@ -54,8 +52,12 @@ struct ObjcClass {
         return ObjcClass(isa: isa, superClass: superClass, cache: cache, cacheMask: cacheMask, cacheOccupied: cacheOccupied, classData: classData, reserved1: reserved1, reserved2: reserved2, reserved3: reserved3, classRO: classRO, classMethods: nil, isSwiftClass: isSwiftClass)
     }
     
-    func serialization() {
-        var result = "@interface \(classRO.name.className.value) \(superClass.superClassName.count > 0 ? ": \(superClass.superClassName)" : "") \(classRO.baseProtocol.serialization()) //0x\(isa.address)\n"
+    func serialization() async {
+        var superClassName = ""
+        if let s = await MachOData.shared.dylbMap.get(superClass.superClass.address.ltrim("0")) {
+            superClassName = fixSymbolName(s)
+        }
+        var result = "@interface \(classRO.name.className.value) \(superClassName.count > 0 ? ": \(superClassName)" : "") \(await classRO.baseProtocol.serialization()) //0x\(isa.address)\n"
         if let instanceVariables = classRO.ivars.instanceVariables {
             result += "{\n"
             for item in instanceVariables {

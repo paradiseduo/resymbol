@@ -39,12 +39,12 @@ struct Protocols {
         }
     }
     
-    func serialization() -> String {
+    func serialization() async -> String {
         var protocolString = ""
         if let pros = protocols {
             protocolString += "<"
             for item in pros {
-                if let p = MachOData.shared.objcProtocols[item.pointer.value.int16Replace()] {
+                if let p = await MachOData.shared.objcProtocols.get(item.pointer.value.int16Replace()) {
                     protocolString += p + ", "
                 }
             }

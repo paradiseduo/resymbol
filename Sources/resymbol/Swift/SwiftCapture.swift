@@ -59,15 +59,15 @@ struct SwiftCapture {
     }
     
     
-    func serialization() {
+    func serialization() async {
         var result = "block \(numCaptureTypes.address) {\n"
         result += "\t// captureTypeRecords\n"
         for item in captureTypeRecords {
-            result += "\t\(fixMangledTypeName(item.mangledTypeName.swiftName))\n"
+            result += "\t\(await fixMangledTypeName(item.mangledTypeName.swiftName))\n"
         }
         result += "\t// metadataSourceRecords\n"
         for item in metadataSourceRecords {
-            result += "\t\(fixMangledTypeName(item.mangledTypeName.swiftName)): \(fixMangledTypeName(item.mangledMetadataSource.swiftName))\n"
+            result += "\t\(await fixMangledTypeName(item.mangledTypeName.swiftName)): \(await fixMangledTypeName(item.mangledMetadataSource.swiftName))\n"
         }
         result += "}\n"
         print(result)

@@ -71,7 +71,6 @@ struct Nlist {
     let sectionIndex: DataStruct
     let description: DataStruct
     let valueAddress: DataStruct
-    var name: String
     
     static func nlist(_ binary: Data, offset: Int) -> Nlist {
         let stringTableIndex = DataStruct.data(binary, offset: offset, length: 4)
@@ -79,8 +78,8 @@ struct Nlist {
         let sectionIndex = DataStruct.data(binary, offset: offset+5, length: 1)
         let description = DataStruct.data(binary, offset: offset+6, length: 2)
         let valueAddress = DataStruct.data(binary, offset: offset+8, length: 8)
-        let name = MachOData.shared.stringTable[stringTableIndex.value] ?? ""
-        return Nlist(stringTableIndex: stringTableIndex, type: type, sectionIndex: sectionIndex, description: description, valueAddress: valueAddress, name: name)
+        
+        return Nlist(stringTableIndex: stringTableIndex, type: type, sectionIndex: sectionIndex, description: description, valueAddress: valueAddress)
     }
 }
 
@@ -96,13 +95,10 @@ func symbolName(_ name: String) -> String {
     return name
 }
 
-func fixSymbolName(_ name: String?) -> String? {
-    if let s = name {
-        let result = symbolName(s)
-        if let swift = swift_demangle(result) {
-            return swift
-        }
-        return result
+func fixSymbolName(_ name: String) -> String {
+    let result = symbolName(name)
+    if let swift = swift_demangle(result) {
+        return swift
     }
-    return name
+    return result
 }

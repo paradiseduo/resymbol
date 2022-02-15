@@ -10,52 +10,19 @@ import MachO
 
 let byteSwappedOrder = NXByteOrder(rawValue: 0)
 
-// 先进行dyld绑定和protocol的dump
-let dyldGroup = DispatchGroup()
-let queueDyld = DispatchQueue(label: "com.Dyld", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSymbol = DispatchQueue(label: "com.Symbol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueProtocol = DispatchQueue(label: "com.Protocol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSwiftProtocols = DispatchQueue(label: "com.Swift.Protocols", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-
-// 再进行class的dump，因为superclass依赖dyld的绑定结果和protocol
-let resymbolGroup = DispatchGroup()
-let queueClass = DispatchQueue(label: "com.Class", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSwiftProtocol = DispatchQueue(label: "com.Swift.Protocol", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSwiftTypes = DispatchQueue(label: "com.Swift.Types", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-
-// 再进行category的dump，因为category依赖于class list和dyld
-let categoryGroup = DispatchGroup()
-let queueCategory = DispatchQueue(label: "com.Category", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSwiftAssocty = DispatchQueue(label: "com.Swift.Assocty", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSwiftBuiltin = DispatchQueue(label: "com.Swift.Builtin", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSwiftCapture = DispatchQueue(label: "com.Swift.Capture", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-
-let printGroup = DispatchGroup()
-let queuePrint = DispatchQueue(label: "com.Print", qos: .unspecified, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-
-let activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount/2
-
 struct Section {
     
-    static func readSection(_ binary: Data, type:BitType, isByteSwapped: Bool, handle: @escaping (Bool)->()) {
+    static func readSection(_ binary: Data, type:BitType, isByteSwapped: Bool, handle: @escaping (Bool)->()) async {
         if type == .x64_fat || type == .x86_fat || type == .none || type == .x86 {
             print("Only Support x64")
             handle(false)
             return
         }
         
-        var categorySections = [section_64]()
-        var classSections = [section_64]()
-        var swiftProtoSection: section_64?
-        var swiftTypeSection: section_64?
-        var assocty: section_64?
-        var builtin: section_64?
-        var capture: section_64?
         var needSymbol = false
         
         let header = binary.extract(mach_header_64.self)
         var offset_machO = MemoryLayout.size(ofValue: header)
-        var vmAddress = [UInt64]()
         for _ in 0..<header.ncmds {
             let loadCommand = binary.extract(load_command.self, offset: offset_machO)
             if loadCommand.cmd == LC_SEGMENT_64 {
@@ -64,7 +31,7 @@ struct Section {
                     swap_segment_command_64(&segment, byteSwappedOrder)
                 }
                 let segmentSegname = String(rawCChar: segment.segname)
-                vmAddress.append(segment.vmaddr)
+                MachOData.shared.vmAddress.append(segment.vmaddr)
                 if segmentSegname == "" {
                     needSymbol = true
                 }
@@ -76,38 +43,46 @@ struct Section {
                         if sectionSegname.hasPrefix("__DATA") {
                             let sectname = String(rawCChar: section.sectname)
                             if sectname.contains("objc_classlist") || sectname.contains("objc_nlclslist") {
-                                classSections.append(section)
+                                MachOData.shared.classSections.append(section)
                             } else if sectname.contains("objc_catlist") || sectname.contains("objc_nlcatlist"){
-                                categorySections.append(section)
+                                MachOData.shared.categorySections.append(section)
                             } else if sectname.contains("objc_protolist") {
-                                handle__objc_protolist(binary, section: section)
+                                MachOData.shared.objc_protolist = section
                             }
                         } else if sectionSegname.hasPrefix("__TEXT") {
                             let sectname = String(rawCChar: section.sectname)
                             if sectname == "__swift5_proto" {
-                                swiftProtoSection = section
+                                MachOData.shared.swiftProtoSection = section
                             } else if sectname.contains("__swift5_protos") {
-                                handle__swift5_protos(binary, section: section)
+                                MachOData.shared.swift5_protos = section
                             } else if sectname.contains("__swift5_types") {
-                                swiftTypeSection = section
+                                MachOData.shared.swiftTypeSection = section
                             } else if sectname.contains("__swift5_typeref") || sectname.contains("__swift5_reflstr") {
-                                handle__swift5_ref(binary, section: section)
+                                MachOData.shared.swift5_ref = section
                             } else if sectname.contains("__swift5_assocty") {
-                                assocty = section
+                                MachOData.shared.assocty = section
                             } else if sectname.contains("__swift5_builtin") {
-                                builtin = section
+                                MachOData.shared.builtin = section
                             } else if sectname.contains("__swift5_capture") {
-                                capture = section
+                                MachOData.shared.capture = section
                             }
                         }
                         offset_segment += 0x50
                     }
                 }
             } else if loadCommand.cmd == LC_DYLD_INFO || loadCommand.cmd == LC_DYLD_INFO_ONLY {
-                bindingDylb(binary, offSet: offset_machO, isByteSwapped: isByteSwapped, vmAddress: vmAddress)
+                var dylib = binary.extract(dyld_info_command.self, offset: offset_machO)
+                if isByteSwapped {
+                    swap_dyld_info_command(&dylib, byteSwappedOrder)
+                }
+                MachOData.shared.dylib = dylib
             } else if loadCommand.cmd == LC_SYMTAB {
                 if needSymbol {
-                    readSymbol(binary, offSet: offset_machO, isByteSwapped: isByteSwapped)
+                    var symtab = binary.extract(symtab_command.self, offset: offset_machO)
+                    if isByteSwapped {
+                        swap_symtab_command(&symtab, byteSwappedOrder)
+                    }
+                    MachOData.shared.symtab = symtab
                 }
             } else if loadCommand.cmd == LC_DYSYMTAB {
 //                var dysymtab = binary.extract(dysymtab_command.self, offset: offset_machO)
@@ -120,68 +95,115 @@ struct Section {
             offset_machO += Int(loadCommand.cmdsize)
         }
         
-        dyldGroup.notify(queue: queueClass) {
-            for section in classSections {
-                handle__objc_classlist(binary, section: section)
-            }
-            if let section = swiftProtoSection {
-                handle__swift5_proto(binary, section: section)
-            }
-            resymbolGroup.notify(queue: queueCategory) {
-                if let section = swiftTypeSection {
-                    handle__swift5_types(binary, section: section)
+        Task {
+            await withTaskGroup(of: Void.self, body: { dyldGroup in
+                dyldGroup.addTask {
+                    await bindingDylb(binary)
                 }
-                for section in categorySections {
-                    handle__objc_catlist(binary, section: section)
+                dyldGroup.addTask {
+                    await readSymbol(binary)
                 }
-                if let section = assocty {
-                    handle__swift5_assocty(binary, section: section)
-                }
-                if let section = builtin {
-                    handle__swift5_builtin(binary, section: section)
-                }
-                if let section = capture {
-                    handle__swift5_capture(binary, section: section)
-                }
-                categoryGroup.notify(queue: queuePrint) {
-                    printSwiftType()
-                    printGroup.notify(queue: DispatchQueue.main) {
-                        handle(true)
+                dyldGroup.addTask {
+                    if let section = MachOData.shared.objc_protolist {
+                        await handle__objc_protolist(binary, section: section)
                     }
                 }
-            }
-        }
-    }
-    
-    static func printSwiftType() {
-        for i in 0..<MachOData.shared.swiftClasses.count {
-            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
-                MachOData.shared.swiftClasses[i]?.serialization()
-            }
-        }
-        for i in 0..<MachOData.shared.swiftStruct.count {
-            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
-                MachOData.shared.swiftStruct[i]?.serialization()
-            }
-        }
-        for i in 0..<MachOData.shared.swiftEnum.count {
-            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
-                MachOData.shared.swiftEnum[i]?.serialization()
-            }
-        }
-        for i in 0..<MachOData.shared.swiftAssocty.count {
-            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
-                MachOData.shared.swiftAssocty[i]?.serialization()
-            }
-        }
-        for i in 0..<MachOData.shared.swiftBuiltin.count {
-            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
-                MachOData.shared.swiftBuiltin[i]?.serialization()
-            }
-        }
-        for i in 0..<MachOData.shared.swiftCapture.count {
-            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
-                MachOData.shared.swiftCapture[i]?.serialization()
+                dyldGroup.addTask {
+                    if let section = MachOData.shared.swift5_protos {
+                        await handle__swift5_protos(binary, section: section)
+                    }
+                }
+                dyldGroup.addTask {
+                    if let section = MachOData.shared.swift5_ref {
+                        await handle__swift5_ref(binary, section: section)
+                    }
+                }
+                dyldGroup.addTask {
+                    if let section = MachOData.shared.assocty {
+                        await handle__swift5_assocty(binary, section: section)
+                    }
+                }
+                dyldGroup.addTask {
+                    if let section = MachOData.shared.builtin {
+                        await handle__swift5_builtin(binary, section: section)
+                    }
+                }
+                dyldGroup.addTask {
+                    if let section = MachOData.shared.capture {
+                        await handle__swift5_capture(binary, section: section)
+                    }
+                }
+            })
+            Task {
+                await withTaskGroup(of: Void.self, body: { classGroup in
+                    classGroup.addTask {
+                        for section in MachOData.shared.classSections {
+                            await handle__objc_classlist(binary, section: section)
+                        }
+                    }
+                    classGroup.addTask {
+                        if let section = MachOData.shared.swiftProtoSection {
+                            await handle__swift5_proto(binary, section: section)
+                        }
+                    }
+                })
+                Task {
+                    await withTaskGroup(of: Void.self, body: { categoryGroup in
+                        categoryGroup.addTask {
+                            if let section = MachOData.shared.swiftTypeSection {
+                                await handle__swift5_types(binary, section: section)
+                            }
+                        }
+                        categoryGroup.addTask {
+                            for section in MachOData.shared.categorySections {
+                                await handle__objc_catlist(binary, section: section)
+                            }
+                        }
+                    })
+                    Task {
+                        await withTaskGroup(of: Void.self, body: { printGroup in
+                            printGroup.addTask {
+                                let c = await MachOData.shared.swiftClasses.count
+                                for i in 0..<c {
+                                    await MachOData.shared.swiftClasses[i]?.serialization()
+                                }
+                            }
+                            printGroup.addTask {
+                                let c = await MachOData.shared.swiftStruct.count
+                                for i in 0..<c {
+                                    await MachOData.shared.swiftStruct[i]?.serialization()
+                                }
+                            }
+                            printGroup.addTask {
+                                let c = await MachOData.shared.swiftEnum.count
+                                for i in 0..<c {
+                                    await MachOData.shared.swiftEnum[i]?.serialization()
+                                }
+                            }
+                            printGroup.addTask {
+                                let c = await MachOData.shared.swiftAssocty.count
+                                for i in 0..<c {
+                                    await MachOData.shared.swiftAssocty[i]?.serialization()
+                                }
+                            }
+                            printGroup.addTask {
+                                let c = await MachOData.shared.swiftBuiltin.count
+                                for i in 0..<c {
+                                    await MachOData.shared.swiftBuiltin[i]?.serialization()
+                                }
+                            }
+                            printGroup.addTask {
+                                let c = await MachOData.shared.swiftCapture.count
+                                for i in 0..<c {
+                                    await MachOData.shared.swiftCapture[i]?.serialization()
+                                }
+                            }
+                        })
+                        DispatchQueue.main.async {
+                            handle(true)
+                        }
+                    }
+                }
             }
         }
     }
@@ -192,237 +214,221 @@ struct Section {
             handle(false)
             return
         }
-        
-        let header = binary.extract(mach_header_64.self)
-        var offset_machO = MemoryLayout.size(ofValue: header)
-        for _ in 0..<header.ncmds {
-            let loadCommand = binary.extract(load_command.self, offset: offset_machO)
-            if loadCommand.cmd == LC_SYMTAB {
-                readSymbol(binary, offSet: offset_machO, isByteSwapped: isByteSwapped, dumpSymbol: true)
+        Task {
+            await withTaskGroup(of: Void.self, body: { group in
+                group.addTask {
+                    let header = binary.extract(mach_header_64.self)
+                    var offset_machO = MemoryLayout.size(ofValue: header)
+                    for _ in 0..<header.ncmds {
+                        let loadCommand = binary.extract(load_command.self, offset: offset_machO)
+                        if loadCommand.cmd == LC_SYMTAB {
+                            var symtab = binary.extract(symtab_command.self, offset: offset_machO)
+                            if isByteSwapped {
+                                swap_symtab_command(&symtab, byteSwappedOrder)
+                            }
+                            MachOData.shared.symtab = symtab
+                            await readSymbol(binary)
+                            break
+                        }
+                        offset_machO += Int(loadCommand.cmdsize)
+                    }
+                }
+                DispatchQueue.main.async {
+                    handle(true)
+                }
+            })
+        }
+    }
+    
+    private static func bindingDylb(_ binary: Data) async {
+        if let dylib = MachOData.shared.dylib {
+            await Dyld.binding(binary, vmAddress: MachOData.shared.vmAddress, start: Int(dylib.bind_off), end: Int(dylib.bind_off+dylib.bind_size))
+            await Dyld.binding(binary, vmAddress: MachOData.shared.vmAddress, start: Int(dylib.weak_bind_off), end: Int(dylib.weak_bind_off+dylib.weak_bind_size))
+            await Dyld.binding(binary, vmAddress: MachOData.shared.vmAddress, start: Int(dylib.lazy_bind_off), end: Int(dylib.lazy_bind_off+dylib.lazy_bind_size), isLazy: true)
+        }
+    }
+    
+    private static func readSymbol(_ binary: Data, dumpSymbol: Bool = false) async {
+        if let symtab = MachOData.shared.symtab {
+            await handle_string_table(binary, symtab: symtab)
+            await handle_symbol_table(binary, symtab: symtab, dumpSymbol: dumpSymbol)
+        }
+    }
+}
+
+
+extension Section {
+    private static func handle__objc_classlist(_ binary: Data, section: section_64) async {
+        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        let count = d.count>>3
+        for i in 0..<count {
+            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
+            
+            var offsetS = sub.rawValueBig().int16Replace()
+            if offsetS % 4 != 0 {
+                offsetS -= offsetS%4
+            }
+            if offsetS > 0 {
+                var oc = ObjcClass.OC(binary, offset: offsetS)
+                
+                let isa = DataStruct.data(binary, offset: offsetS, length: 8)
+                var metaClassOffset = isa.value.int16Replace()
+                if metaClassOffset % 4 != 0 {
+                    metaClassOffset -= metaClassOffset%4
+                }
+                oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
+                await MachOData.shared.objcClasses.set(oc.isa.address.int16(), oc.classRO.name.className.value)
+                await oc.serialization()
+            }
+        }
+    }
+    
+    private static func handle__objc_catlist(_ binary: Data, section: section_64) async {
+        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        let count = d.count>>3
+        for i in 0..<count {
+            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
+            
+            var offsetS = sub.rawValueBig().int16Replace()
+            if offsetS % 4 != 0 {
+                offsetS -= offsetS%4
+            }
+            await ObjcCategory.OCCG(binary, offset: offsetS).serialization()
+        }
+    }
+    
+    private static func handle__objc_protolist(_ binary: Data, section: section_64) async {
+        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        let count = d.count>>3
+        for i in 0..<count {
+            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
+            
+            var offsetS = sub.rawValueBig().int16Replace()
+            if offsetS % 4 != 0 {
+                offsetS -= offsetS%4
+            }
+            let pr = ObjcProtocol.OCPT(binary, offset: offsetS)
+            await MachOData.shared.objcProtocols.set(pr.isa.address.int16(), pr.name.className.value)
+            pr.serialization()
+        }
+    }
+}
+
+
+extension Section {
+    private static func handle__swift5_protos(_ binary: Data, section: section_64) async {
+        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        let count = d.count>>2
+        for i in 0..<count {
+            let location = i<<2
+            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
+            var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
+            if offsetS % 4 != 0 {
+                offsetS -= offsetS%4
+            }
+            let p = ProtocolDescriptor.PD(binary, offset: offsetS)
+            p.serialization()
+            await MachOData.shared.swiftProtocols.set(offsetS, p.name.swiftName.value)
+        }
+    }
+    
+    private static func handle__swift5_proto(_ binary: Data, section: section_64) async {
+        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        let count = d.count>>2
+        for i in 0..<count {
+            let location = i<<2
+            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
+            var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
+            if offsetS % 4 != 0 {
+                offsetS -= offsetS%4
+            }
+            let p = SwiftProtocol.SP(binary, offset: offsetS)
+            var nominalName = ""
+            switch p.nominalTypeDescriptor.nominalTypeDescriptor.value.int16Subtraction() & 0x3 {
+            case 0:
+                nominalName = await MachOData.shared.nominalOffsetMap.get(p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()) ?? ""
+                if nominalName.isEmpty {
+                    await MachOData.shared.nominalOffsetMap.set(p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16(), p.nominalTypeDescriptor.nominalTypeName.value)
+                }
+                break
+            case 1:
+                nominalName = p.nominalTypeDescriptor.nominalTypeName.value
+                break
+            case 2:
+                nominalName = p.nominalTypeDescriptor.nominalTypeName.value
+                break
+            case 3:
+                break
+            default:
                 break
             }
-            offset_machO += Int(loadCommand.cmdsize)
-        }
-        dyldGroup.notify(queue: DispatchQueue.main) {
-            handle(true)
         }
     }
     
-    private static func bindingDylb(_ binary: Data, offSet: Int, isByteSwapped: Bool, vmAddress: [UInt64]) {
-        var dylib = binary.extract(dyld_info_command.self, offset: offSet)
-        if isByteSwapped {
-            swap_dyld_info_command(&dylib, byteSwappedOrder)
-        }
-        DispatchLimitQueue.shared.limit(queue: queueDyld, group: dyldGroup, count: activeProcessorCount){
-            Dyld.binding(binary, vmAddress: vmAddress, start: Int(dylib.bind_off), end: Int(dylib.bind_off+dylib.bind_size))
-            Dyld.binding(binary, vmAddress: vmAddress, start: Int(dylib.weak_bind_off), end: Int(dylib.weak_bind_off+dylib.weak_bind_size))
-            Dyld.binding(binary, vmAddress: vmAddress, start: Int(dylib.lazy_bind_off), end: Int(dylib.lazy_bind_off+dylib.lazy_bind_size), isLazy: true)
+    private static func handle__swift5_types(_ binary: Data, section: section_64) async {
+        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        let count = d.count>>2
+        for i in 0..<count {
+            let location = i<<2
+            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
+            var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
+            if offsetS % 4 != 0 {
+                offsetS -= offsetS%4
+            }
+            let flags = SwiftFlags.SF(binary, offset: offsetS)
+            switch flags.kind {
+            case .Class:
+                let c = SwiftClass.SC(binary, offset: offsetS+4, flags: flags)
+                await MachOData.shared.swiftClasses.append(c)
+                await MachOData.shared.nominalOffsetMap.set(offsetS, c.type.name.swiftName.value)
+                await MachOData.shared.mangledNameMap.set(c.type.fieldDescriptor.mangledTypeName.swiftName.value, c.type.name.swiftName.value)
+                break
+            case .Enum:
+                let e = SwiftEnum.SE(binary, offset: offsetS+4, flags: flags)
+                await MachOData.shared.swiftEnum.append(e)
+                await MachOData.shared.nominalOffsetMap.set(offsetS, e.type.name.swiftName.value)
+                await MachOData.shared.mangledNameMap.set(e.type.fieldDescriptor.mangledTypeName.swiftName.value, e.type.name.swiftName.value)
+                break
+            case .Struct:
+                let s = SwiftStruct.SS(binary, offset: offsetS+4, flags: flags)
+                await MachOData.shared.swiftStruct.append(s)
+                await MachOData.shared.nominalOffsetMap.set(offsetS, s.type.name.swiftName.value)
+                await MachOData.shared.mangledNameMap.set(s.type.fieldDescriptor.mangledTypeName.swiftName.value, s.type.name.swiftName.value)
+                break
+            default:
+                break
+            }
         }
     }
     
-    private static func readSymbol(_ binary: Data, offSet: Int, isByteSwapped: Bool, dumpSymbol: Bool = false) {
-        var symtab = binary.extract(symtab_command.self, offset: offSet)
-        if isByteSwapped {
-            swap_symtab_command(&symtab, byteSwappedOrder)
+    private static func handle__swift5_assocty(_ binary: Data, section: section_64) async {
+        var index = Int(section.offset)
+        let end = Int(section.offset) + Int(section.size)
+        while index < end {
+            await MachOData.shared.swiftAssocty.append(SwiftAssocty.SA(binary, offset: &index))
         }
-        DispatchLimitQueue.shared.limit(queue: queueSymbol, group: dyldGroup, count: activeProcessorCount) {
-            handle_string_table(binary, symtab: symtab)
-            handle_symbol_table(binary, symtab: symtab, dumpSymbol: dumpSymbol)
+    }
+    
+    private static func handle__swift5_builtin(_ binary: Data, section: section_64) async {
+        var index = Int(section.offset)
+        let end = Int(section.offset) + Int(section.size)
+        while index < end {
+            await MachOData.shared.swiftBuiltin.append(SwiftBuiltin.SB(binary, offset: &index))
+        }
+    }
+    
+    private static func handle__swift5_capture(_ binary: Data, section: section_64) async {
+        var index = Int(section.offset)
+        let end = Int(section.offset) + Int(section.size)
+        while index < end {
+            await MachOData.shared.swiftCapture.append(SwiftCapture.SC(binary, offset: &index))
         }
     }
 }
 
 
 extension Section {
-    private static func handle__objc_classlist(_ binary: Data, section: section_64) {
-        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
-        let count = d.count>>3
-        for i in 0..<count {
-            DispatchLimitQueue.shared.limit(queue: queueClass, group: resymbolGroup, count: activeProcessorCount) {
-                let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
-                
-                var offsetS = sub.rawValueBig().int16Replace()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
-                if offsetS > 0 {
-                    var oc = ObjcClass.OC(binary, offset: offsetS)
-                    
-                    let isa = DataStruct.data(binary, offset: offsetS, length: 8)
-                    var metaClassOffset = isa.value.int16Replace()
-                    if metaClassOffset % 4 != 0 {
-                        metaClassOffset -= metaClassOffset%4
-                    }
-                    oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
-                    MachOData.shared.objcClasses[oc.isa.address.int16()] = oc.classRO.name.className.value
-                    oc.serialization()
-                }
-            }
-        }
-    }
-    
-    private static func handle__objc_catlist(_ binary: Data, section: section_64) {
-        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
-        let count = d.count>>3
-        for i in 0..<count {
-            DispatchLimitQueue.shared.limit(queue: queueCategory, group: categoryGroup, count: activeProcessorCount) {
-                let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
-                
-                var offsetS = sub.rawValueBig().int16Replace()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
-                ObjcCategory.OCCG(binary, offset: offsetS).serialization()
-            }
-        }
-    }
-    
-    private static func handle__objc_protolist(_ binary: Data, section: section_64) {
-        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
-        let count = d.count>>3
-        for i in 0..<count {
-            DispatchLimitQueue.shared.limit(queue: queueProtocol, group: dyldGroup, count: activeProcessorCount) {
-                let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
-                
-                var offsetS = sub.rawValueBig().int16Replace()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
-                let pr = ObjcProtocol.OCPT(binary, offset: offsetS)
-                MachOData.shared.objcProtocols[pr.isa.address.int16()] = pr.name.className.value
-                pr.serialization()
-            }
-        }
-    }
-}
-
-
-extension Section {
-    private static func handle__swift5_protos(_ binary: Data, section: section_64) {
-        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
-        let count = d.count>>2
-        for i in 0..<count {
-            DispatchLimitQueue.shared.limit(queue: queueSwiftProtocols, group: dyldGroup, count: activeProcessorCount) {
-                let location = i<<2
-                let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-                var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
-                let p = ProtocolDescriptor.PD(binary, offset: offsetS)
-                p.serialization()
-                MachOData.shared.swiftProtocols[offsetS] = p.name.swiftName.value
-            }
-        }
-    }
-    
-    private static func handle__swift5_proto(_ binary: Data, section: section_64) {
-        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
-        let count = d.count>>2
-        for i in 0..<count {
-            DispatchLimitQueue.shared.limit(queue: queueSwiftProtocol, group: resymbolGroup, count: activeProcessorCount) {
-                let location = i<<2
-                let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-                var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
-                let p = SwiftProtocol.SP(binary, offset: offsetS)
-                var nominalName = ""
-                switch p.nominalTypeDescriptor.nominalTypeDescriptor.value.int16Subtraction() & 0x3 {
-                case 0:
-                    nominalName = MachOData.shared.nominalOffsetMap[p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()] ?? ""
-                    if nominalName.isEmpty {
-                        MachOData.shared.nominalOffsetMap[p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()] = p.nominalTypeDescriptor.nominalTypeName.value
-                    }
-                    break
-                case 1:
-                    nominalName = p.nominalTypeDescriptor.nominalTypeName.value
-                    break
-                case 2:
-                    nominalName = p.nominalTypeDescriptor.nominalTypeName.value
-                    break
-                case 3:
-                    break
-                default:
-                    break
-                }
-            }
-        }
-    }
-    
-    private static func handle__swift5_types(_ binary: Data, section: section_64) {
-        let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
-        let count = d.count>>2
-        for i in 0..<count {
-            DispatchLimitQueue.shared.limit(queue: queueSwiftTypes, group: categoryGroup, count: activeProcessorCount) {
-                let location = i<<2
-                let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-                var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
-                let flags = SwiftFlags.SF(binary, offset: offsetS)
-                switch flags.kind {
-                case .Class:
-                    let c = SwiftClass.SC(binary, offset: offsetS+4, flags: flags)
-                    MachOData.shared.swiftClasses.append(c)
-                    MachOData.shared.nominalOffsetMap[offsetS] = c.type.name.swiftName.value
-                    MachOData.shared.mangledNameMap[c.type.fieldDescriptor.mangledTypeName.swiftName.value] = c.type.name.swiftName.value
-                    break
-                case .Enum:
-                    let e = SwiftEnum.SE(binary, offset: offsetS+4, flags: flags)
-                    MachOData.shared.swiftEnum.append(e)
-                    MachOData.shared.nominalOffsetMap[offsetS] = e.type.name.swiftName.value
-                    MachOData.shared.mangledNameMap[e.type.fieldDescriptor.mangledTypeName.swiftName.value] = e.type.name.swiftName.value
-                    break
-                case .Struct:
-                    let s = SwiftStruct.SS(binary, offset: offsetS+4, flags: flags)
-                    MachOData.shared.swiftStruct.append(s)
-                    MachOData.shared.nominalOffsetMap[offsetS] = s.type.name.swiftName.value
-                    MachOData.shared.mangledNameMap[s.type.fieldDescriptor.mangledTypeName.swiftName.value] = s.type.name.swiftName.value
-                    break
-                default:
-                    break
-                }
-            }
-        }
-    }
-    
-    private static func handle__swift5_assocty(_ binary: Data, section: section_64) {
-        DispatchLimitQueue.shared.limit(queue: queueSwiftAssocty, group: categoryGroup, count: activeProcessorCount) {
-            var index = Int(section.offset)
-            let end = Int(section.offset) + Int(section.size)
-            while index < end {
-                MachOData.shared.swiftAssocty.append(SwiftAssocty.SA(binary, offset: &index))
-            }
-        }
-    }
-    
-    private static func handle__swift5_builtin(_ binary: Data, section: section_64) {
-        DispatchLimitQueue.shared.limit(queue: queueSwiftBuiltin, group: categoryGroup, count: activeProcessorCount) {
-            var index = Int(section.offset)
-            let end = Int(section.offset) + Int(section.size)
-            while index < end {
-                MachOData.shared.swiftBuiltin.append(SwiftBuiltin.SB(binary, offset: &index))
-            }
-        }
-    }
-    
-    private static func handle__swift5_capture(_ binary: Data, section: section_64) {
-        DispatchLimitQueue.shared.limit(queue: queueSwiftCapture, group: categoryGroup, count: activeProcessorCount) {
-            var index = Int(section.offset)
-            let end = Int(section.offset) + Int(section.size)
-            while index < end {
-                MachOData.shared.swiftCapture.append(SwiftCapture.SC(binary, offset: &index))
-            }
-        }
-    }
-}
-
-
-extension Section {
-    private static func handle_string_table(_ binary: Data, symtab: symtab_command) {
+    private static func handle_string_table(_ binary: Data, symtab: symtab_command) async {
         let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.stroff), length: Int(symtab.strsize)))!)
         var index = 0
         while index < stringTable.count {
@@ -434,39 +440,38 @@ extension Section {
                 item = stringTable[index]
             }
             index += 1
-            MachOData.shared.stringTable[index.string16()] = String(data: strData, encoding: String.Encoding.utf8) ?? ""
+            await MachOData.shared.stringTable.set(index.string16(), String(data: strData, encoding: String.Encoding.utf8) ?? "")
         }
     }
     
-    private static func handle_symbol_table(_ binary: Data, symtab: symtab_command, dumpSymbol: Bool = false) {
+    private static func handle_symbol_table(_ binary: Data, symtab: symtab_command, dumpSymbol: Bool = false) async {
         let offsetStart = Int(symtab.symoff)
         for i in 0..<symtab.nsyms {
             let nlist = Nlist.nlist(binary, offset: offsetStart+Int(i)*16)
+            let name = await MachOData.shared.stringTable.get(nlist.stringTableIndex.value) ?? ""
             if dumpSymbol {
-                print("\(nlist.valueAddress.value) \(nlist.name.count > 0 ? nlist.name : "PD\(i)")")
+                print("\(nlist.valueAddress.value) \(name.count > 0 ? name : "PD\(i)")")
             } else {
-                MachOData.shared.symbolTable[nlist.valueAddress.value] = nlist.name.count > 0 ? nlist.name : "PD\(i)"
+                await MachOData.shared.symbolTable.set(nlist.valueAddress.value, name.count > 0 ? name : "PD\(i)")
             }
         }
     }
     
-    private static func handle__swift5_ref(_ binary: Data, section: section_64) {
-        DispatchLimitQueue.shared.limit(queue: queueSymbol, group: dyldGroup, count: activeProcessorCount) {
-            let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
-            var index = 0
-            while index < stringTable.count {
-                var strData = Data()
-                var item = stringTable[index]
-                while item != 0 {
-                    strData.append(item)
-                    index += 1
-                    item = stringTable[index]
-                }
-                if let s = String(data: strData, encoding: String.Encoding.utf8), s.count > 0 {
-                    MachOData.shared.nominalOffsetMap[Int(section.offset)+index-s.count] = s
-                }
+    private static func handle__swift5_ref(_ binary: Data, section: section_64) async {
+        let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        var index = 0
+        while index < stringTable.count {
+            var strData = Data()
+            var item = stringTable[index]
+            while item != 0 {
+                strData.append(item)
                 index += 1
+                item = stringTable[index]
             }
+            if let s = String(data: strData, encoding: String.Encoding.utf8), s.count > 0 {
+                await MachOData.shared.nominalOffsetMap.set(Int(section.offset)+index-s.count, s)
+            }
+            index += 1
         }
     }
 }

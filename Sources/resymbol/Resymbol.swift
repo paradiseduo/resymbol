@@ -37,8 +37,10 @@ struct Resymbol: ParsableCommand {
                                 running = false
                             }
                         } else {
-                            Section.readSection(binary, type: type, isByteSwapped: isByteSwapped) { result in
-                                running = false
+                            Task {
+                                await Section.readSection(binary, type: type, isByteSwapped: isByteSwapped) { result in
+                                    running = false
+                                }
                             }
                         }
                     }
