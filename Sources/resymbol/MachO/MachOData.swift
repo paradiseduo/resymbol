@@ -25,6 +25,9 @@ class MachOData {
     var swiftClasses = SyncArray<SwiftClass>("SwiftClassesArraySyncQueue")
     var swiftStruct = SyncArray<SwiftStruct>("SwiftStructArraySyncQueue")
     var swiftEnum = SyncArray<SwiftEnum>("SwiftEnumArraySyncQueue")
+    var swiftAssocty = SyncArray<SwiftAssocty>("SwiftAssoctyArraySyncQueue")
+    var swiftBuiltin = SyncArray<SwiftBuiltin>("SwiftBuiltinArraySyncQueue")
+    var swiftCapture = SyncArray<SwiftCapture>("SwiftCaptureArraySyncQueue")
     
     private init() {}
 }

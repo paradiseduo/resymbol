@@ -19,12 +19,12 @@ struct CaptureTypeRecord {
 
 struct MetadataSourceRecord {
     let mangledTypeName: SwiftName
-    let mangledMetadataSource: DataStruct
+    let mangledMetadataSource: SwiftName
     
     static func MSR(_ binary: Data, offset: inout Int) -> MetadataSourceRecord {
         let mangledTypeName = SwiftName.SN(binary, offset: offset, isClassName: false)
         offset += 4
-        let mangledMetadataSource = DataStruct.data(binary, offset: offset, length: 4)
+        let mangledMetadataSource = SwiftName.SN(binary, offset: offset, isClassName: false)
         offset += 4
         return MetadataSourceRecord(mangledTypeName: mangledTypeName, mangledMetadataSource: mangledMetadataSource)
     }
@@ -67,7 +67,7 @@ struct SwiftCapture {
         }
         result += "\t// metadataSourceRecords\n"
         for item in metadataSourceRecords {
-            result += "\t\(fixMangledTypeName(item.mangledTypeName.swiftName)): \(item.mangledMetadataSource)\n"
+            result += "\t\(fixMangledTypeName(item.mangledTypeName.swiftName)): \(fixMangledTypeName(item.mangledMetadataSource.swiftName))\n"
         }
         result += "}\n"
         print(result)

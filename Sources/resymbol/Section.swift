@@ -156,23 +156,32 @@ struct Section {
     static func printSwiftType() {
         for i in 0..<MachOData.shared.swiftClasses.count {
             DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
-                if let item = MachOData.shared.swiftClasses[i] {
-                    item.serialization()
-                }
+                MachOData.shared.swiftClasses[i]?.serialization()
             }
         }
         for i in 0..<MachOData.shared.swiftStruct.count {
             DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
-                if let item = MachOData.shared.swiftStruct[i] {
-                    item.serialization()
-                }
+                MachOData.shared.swiftStruct[i]?.serialization()
             }
         }
         for i in 0..<MachOData.shared.swiftEnum.count {
             DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
-                if let item = MachOData.shared.swiftEnum[i] {
-                    item.serialization()
-                }
+                MachOData.shared.swiftEnum[i]?.serialization()
+            }
+        }
+        for i in 0..<MachOData.shared.swiftAssocty.count {
+            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
+                MachOData.shared.swiftAssocty[i]?.serialization()
+            }
+        }
+        for i in 0..<MachOData.shared.swiftBuiltin.count {
+            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
+                MachOData.shared.swiftBuiltin[i]?.serialization()
+            }
+        }
+        for i in 0..<MachOData.shared.swiftCapture.count {
+            DispatchLimitQueue.shared.limit(queue: queuePrint, group: printGroup, count: activeProcessorCount) {
+                MachOData.shared.swiftCapture[i]?.serialization()
             }
         }
     }
@@ -385,7 +394,7 @@ extension Section {
             var index = Int(section.offset)
             let end = Int(section.offset) + Int(section.size)
             while index < end {
-                SwiftAssocty.SA(binary, offset: &index).serialization()
+                MachOData.shared.swiftAssocty.append(SwiftAssocty.SA(binary, offset: &index))
             }
         }
     }
@@ -395,7 +404,7 @@ extension Section {
             var index = Int(section.offset)
             let end = Int(section.offset) + Int(section.size)
             while index < end {
-                SwiftBuiltin.SB(binary, offset: &index).serialization()
+                MachOData.shared.swiftBuiltin.append(SwiftBuiltin.SB(binary, offset: &index))
             }
         }
     }
@@ -405,7 +414,7 @@ extension Section {
             var index = Int(section.offset)
             let end = Int(section.offset) + Int(section.size)
             while index < end {
-                SwiftCapture.SC(binary, offset: &index).serialization()
+                MachOData.shared.swiftCapture.append(SwiftCapture.SC(binary, offset: &index))
             }
         }
     }
