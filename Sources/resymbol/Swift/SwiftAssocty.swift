@@ -42,4 +42,13 @@ struct SwiftAssocty {
         }
         return SwiftAssocty(conformingTypeName: conformingTypeName, protocolTypeName: protocolTypeName, numAssociatedTypes: numAssociatedTypes, associatedTypeRecordSize: associatedTypeRecordSize, associatedTypeRecords: associatedTypeRecords)
     }
+    
+    func serialization() {
+        var result = "extension \(fixMangledTypeName(conformingTypeName.swiftName)): \(protocolTypeName.swiftName.value) {\n"
+        for item in associatedTypeRecords {
+            result += "    \(item.name.swiftName.value):\(fixMangledTypeName(item.substitutedTypeName.swiftName))\n"
+        }
+        result += "}\n"
+        print(result)
+    }
 }

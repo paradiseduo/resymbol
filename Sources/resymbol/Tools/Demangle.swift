@@ -10,26 +10,43 @@ import Foundation
 
 import Darwin
 
-typealias Swift_Demangle = @convention(c) (_ mangledName: UnsafePointer<UInt8>?,
-                                           _ mangledNameLength: Int,
-                                           _ outputBuffer: UnsafeMutablePointer<UInt8>?,
-                                           _ outputBufferSize: UnsafeMutablePointer<Int>?,
-                                           _ flags: UInt32) -> UnsafeMutablePointer<Int8>?
+@_silgen_name("swift_demangle")
+public func _stdlib_demangleImpl(
+    mangledName: UnsafePointer<CChar>?,
+    mangledNameLength: UInt,
+    outputBuffer: UnsafeMutablePointer<CChar>?,
+    outputBufferSize: UnsafeMutablePointer<UInt>?,
+    flags: UInt32
+) -> UnsafeMutablePointer<CChar>?
+
+internal func _stdlib_demangleName(_ mangledName: String) -> String {
+    return mangledName.utf8CString.withUnsafeBufferPointer {
+        mangledNameUTF8CStr in
+
+        let demangledNamePtr = _stdlib_demangleImpl(
+            mangledName: mangledNameUTF8CStr.baseAddress,
+            mangledNameLength: UInt(mangledNameUTF8CStr.count - 1),
+            outputBuffer: nil,
+            outputBufferSize: nil,
+            flags: 0
+        )
+
+        if let demangledNamePtr = demangledNamePtr {
+            let demangledName = String(cString: demangledNamePtr)
+            free(demangledNamePtr)
+            return demangledName
+        }
+        return mangledName
+    }
+}
+
 
 func swift_demangle(_ mangled: String) -> String? {
-    let RTLD_DEFAULT = dlopen(nil, RTLD_NOW)
-    if let sym = dlsym(RTLD_DEFAULT, "swift_demangle") {
-        let f = unsafeBitCast(sym, to: Swift_Demangle.self)
-        if let cString = f(mangled, mangled.count, nil, nil, 0) {
-            defer { cString.deallocate() }
-            let result = String(cString: cString).replacingOccurrences(of: "$s", with: "").replacingOccurrences(of: "__C.", with: "")
-            if result.contains("for "), let s = result.components(separatedBy: "for ").last {
-                return s
-            }
-            return fixOptionalTypeName(result)
-        }
+    let result = _stdlib_demangleName(mangled).replacingOccurrences(of: "$s", with: "").replacingOccurrences(of: "__C.", with: "")
+    if result.contains("for "), let s = result.components(separatedBy: "for ").last {
+        return s
     }
-    return nil
+    return fixOptionalTypeName(result)
 }
 
 
@@ -108,8 +125,11 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
     if !dataStruct.value.contains("0x") {
         return dataStruct.value
     }
-    let hexName: String = dataStruct.value.ltrim("0x")
+    let hexName: String = dataStruct.value.removingPrefix("0x")
     let data = hexName.hexData
+    if data.count < 4 {
+        return dataStruct.value
+    }
     let startAddress = data.count+dataStruct.address.int16()
     
     var mangledName: String = ""
@@ -128,18 +148,21 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             }
             let subData = data[fromIdx..<toIdx]
             let address = subData.rawValueBig().int16() + startAddress + fromIdx
-            let result = MachOData.shared.nominalOffsetMap[address] ?? ""
-            if result.count > 0 {
-                if (i == 0 && toIdx >= data.count) {
-                    mangledName = mangledName + result // use original result
-                } else {
-                    let fixName = makeDemangledTypeName(result, header: "")
-                    mangledName = mangledName + fixName
-                }
+            var result = ""
+            if let s = MachOData.shared.mangledNameMap[dataStruct.value] {
+                result = s
+            } else if let s = MachOData.shared.nominalOffsetMap[address] {
+                result = s
             } else if let s = MachOData.shared.dylbMap[String(address, radix: 16, uppercase: false)] {
-                mangledName = s
+                result = s
             } else if let s = MachOData.shared.swiftProtocols[address] {
-                mangledName = s
+                result = s
+            }
+            if (i == 0 && toIdx >= data.count) {
+                mangledName = mangledName + result // use original result
+            } else {
+                let fixName = makeDemangledTypeName(result, header: "")
+                mangledName = mangledName + fixName
             }
             i += 5
         } else if (val == 0x02) {
@@ -151,7 +174,9 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             let address = subData.rawValueBig().int16() + startAddress + fromIdx
             let newDataStruct = DataStruct.data(MachOData.shared.binary, offset: address, length: 4)
             var result = ""
-            if let s = MachOData.shared.nominalOffsetMap[newDataStruct.value.int16()] {
+            if let s = MachOData.shared.mangledNameMap[dataStruct.value] {
+                result = s
+            } else if let s = MachOData.shared.nominalOffsetMap[newDataStruct.value.int16()] {
                 result = s
             } else if let s = MachOData.shared.dylbMap[String(newDataStruct.address.int16(), radix: 16, uppercase: false)] {
                 result = s

@@ -25,6 +25,7 @@ struct SwiftClass {
     let metadataPositiveSizeInWords: DataStruct
     let numImmediateMembers: DataStruct
     let numFields: DataStruct
+    let fieldOffsetVectorOffset: DataStruct
     
     static func SC(_ binary: Data, offset: Int, flags: SwiftFlags) -> SwiftClass {
         let type = SwiftType.ST(binary, offset: offset, flags: flags)
@@ -33,15 +34,16 @@ struct SwiftClass {
         let metadataPositiveSizeInWords = DataStruct.data(binary, offset: offset+24, length: 4)
         let numImmediateMembers = DataStruct.data(binary, offset: offset+28, length: 4)
         let numFields = DataStruct.data(binary, offset: offset+32, length: 4)
+        let fieldOffsetVectorOffset = DataStruct.data(binary, offset: offset+36, length: 4)
         
-        return SwiftClass(type: type, superclassType: superclassType, metadataNegativeSizeInWords: metadataNegativeSizeInWords, metadataPositiveSizeInWords: metadataPositiveSizeInWords, numImmediateMembers: numImmediateMembers, numFields: numFields)
+        return SwiftClass(type: type, superclassType: superclassType, metadataNegativeSizeInWords: metadataNegativeSizeInWords, metadataPositiveSizeInWords: metadataPositiveSizeInWords, numImmediateMembers: numImmediateMembers, numFields: numFields, fieldOffsetVectorOffset: fieldOffsetVectorOffset)
     }
     
     func serialization() {
         var result = "\(type.flags.kind.description) \(type.name.swiftName.value)"
         if superclassType.superclassType.value != "00000000" {
-            if superclassType.superclassType.value.starts(with: "0x"), let s = MachOData.shared.mangledNameMap[superclassType.superclassType.value] {
-                result += ": \(s) {\n"
+            if superclassType.superclassType.value.starts(with: "0x") {
+                result += ": \(fixMangledTypeName(superclassType.superclassType)) {\n"
             } else {
                 result += ": \(superclassType.superclassType.value) {\n"
             }
