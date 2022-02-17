@@ -42,7 +42,7 @@ struct DataStruct {
                 if strData.count > 0 {
                     let strValue = String(data: strData, encoding: String.Encoding.utf8) ?? ""
                     let address = (Int(offset)-strData.count).string16()
-                    if demangle && strValue.count > 0 {
+                    if strValue.count > 0 && (demangle || strValue.hasPrefix("_")) {
                         if let s = swift_demangle(strValue) {
                             #if DEBUG_FLAG
                             return DataStruct(address: address, data: strData, dataString: strData.rawValue(), value: s)
