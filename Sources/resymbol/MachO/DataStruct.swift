@@ -16,11 +16,15 @@ struct DataStruct {
     let value: String
     
     static func data(_ binary: Data, offset: Int, length: Int) -> DataStruct {
-        let b = binary[offset..<offset+length]
-        #if DEBUG_FLAG
-        return DataStruct(address: offset.string16(), data: b, dataString: b.rawValue(), value: b.rawValueBig())
-        #endif
-        return DataStruct(address: offset.string16(), value: b.rawValueBig())
+        if offset > 0 {
+            let b = binary[offset..<offset+length]
+            #if DEBUG_FLAG
+            return DataStruct(address: offset.string16(), data: b, dataString: b.rawValue(), value: b.rawValueBig())
+            #endif
+            return DataStruct(address: offset.string16(), value: b.rawValueBig())
+        } else {
+            return DataStruct(address: offset.string16(), value: "00000000")
+        }
     }
 
     static func textData(_ binary: Data, offset: Int, demangle: Bool = false) -> DataStruct {

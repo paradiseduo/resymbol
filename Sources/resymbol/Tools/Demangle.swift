@@ -127,9 +127,6 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
     }
     let hexName: String = dataStruct.value.removingPrefix("0x")
     let data = hexName.hexData
-    if data.count < 4 {
-        return dataStruct.value
-    }
     let startAddress = data.count+dataStruct.address.int16()
     
     var mangledName: String = ""
@@ -180,7 +177,7 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
                 result = s
             } else if let s = MachOData.shared.dylbMap[String(newDataStruct.address.int16(), radix: 16, uppercase: false)] {
                 result = s
-            } else if let  s = MachOData.shared.swiftProtocols[newDataStruct.value.int16()] {
+            } else if let s = MachOData.shared.swiftProtocols[newDataStruct.value.int16()] {
                 result = s
             }
             if (i == 0 && toIdx >= data.count) {
