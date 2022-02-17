@@ -110,6 +110,9 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
     }
     let hexName: String = dataStruct.value.removingPrefix("0x")
     let data = hexName.hexData
+    if data.count < 4 {
+        return dataStruct.value
+    }
     let startAddress = data.count+dataStruct.address.int16()
     
     var mangledName: String = ""
