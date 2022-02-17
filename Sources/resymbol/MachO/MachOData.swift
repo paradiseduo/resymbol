@@ -11,7 +11,21 @@ let RVA: UInt64 = 0x100000000
 
 class MachOData {
     static let shared = MachOData()
-    var binary = Data()
+    private let serialQueue = DispatchQueue(label: "MachOData.Binary.Queue", attributes: .concurrent)
+    private var _binary = Data()
+
+    var binary: Data {
+        get {
+            return serialQueue.sync {
+                return _binary
+            }
+        }
+        set {
+            serialQueue.async(flags: .barrier) {
+                self._binary = newValue
+            }
+        }
+    }
     
     var objcClasses = SyncDictionary<Int, String>()
     var dylbMap = SyncDictionary<String, String>()
