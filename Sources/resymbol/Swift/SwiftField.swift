@@ -86,11 +86,11 @@ struct FieldDescriptor {
         let numFields = DataStruct.data(binary, offset: newOffset+12, length: 4)
         var fieldRecords = [FieldRecord]()
         
-        if numFields.value.int16() < 128 {
+        if fieldRecordSize.value.int16() != 0 {
             var fieldStart = newOffset+16
             for _ in 0..<numFields.value.int16() {
                 fieldRecords.append(FieldRecord.FR(binary, offset: fieldStart))
-                fieldStart += 12
+                fieldStart += fieldRecordSize.value.int16()
             }
         }
         
