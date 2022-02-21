@@ -41,7 +41,7 @@ struct DataStruct {
             } else {
                 if strData.count > 0 {
                     let strValue = String(data: strData, encoding: String.Encoding.utf8) ?? ""
-                    let address = (Int(offset)-strData.count).string16()
+                    let address = offset.string16()
                     if strValue.count > 0 && (demangle || strValue.hasPrefix("_")) {
                         if let s = swift_demangle(strValue) {
                             #if DEBUG_FLAG
@@ -74,7 +74,7 @@ struct DataStruct {
             } else {
                 if strData.count > 0 {
                     var strValue = ""
-                    let address = (Int(offset)-strData.count).string16()
+                    let address = offset.string16()
                     if let s = String(data: strData, encoding: String.Encoding.utf8), s.isAsciiStr() {
                         strValue = s
                     } else {
@@ -88,6 +88,9 @@ struct DataStruct {
                     } else {
                         let result = getTypeFromMangledName(strValue)
                         if result == strValue, let s = swift_demangle("$s" + strValue), s != result {
+                            #if DEBUG_FLAG
+                            return DataStruct(address: address, data: strData, dataString: strData.rawValue(), value: s)
+                            #endif
                             return DataStruct(address: address, value: s)
                         } else {
                             #if DEBUG_FLAG

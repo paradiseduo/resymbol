@@ -127,7 +127,7 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
     }
     let hexName: String = dataStruct.value.removingPrefix("0x")
     let data = hexName.hexData
-    let startAddress = data.count+dataStruct.address.int16()
+    let startAddress = dataStruct.address.int16()
     
     var mangledName: String = ""
     var i: Int = 0
