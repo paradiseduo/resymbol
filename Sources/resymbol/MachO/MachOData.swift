@@ -32,7 +32,7 @@ class MachOData {
     var objcProtocols = SyncDictionary<Int, String>("ObjcProtocolDicSyncQueue")
     var swiftProtocols = SyncDictionary<Int, String>("SwiftProtocolslDicSyncQueue")
     var stringTable = SyncDictionary<String, String>("StringTableDicSyncQueue")
-    var symbolTable = SyncDictionary<String, String>("SymbolTableDicSyncQueue")
+    var symbolTable = SyncDictionary<String, Nlist>("SymbolTableDicSyncQueue")
     var mangledNameMap = SyncDictionary<String, String>("MangledNameMapDicSyncQueue")
     var nominalOffsetMap = SyncDictionary<Int, String>("NominalOffsetMapDicSyncQueue")
     

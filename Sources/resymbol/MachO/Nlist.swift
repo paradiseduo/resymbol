@@ -79,7 +79,7 @@ struct Nlist {
         let sectionIndex = DataStruct.data(binary, offset: offset+5, length: 1)
         let description = DataStruct.data(binary, offset: offset+6, length: 2)
         let valueAddress = DataStruct.data(binary, offset: offset+8, length: 8)
-        let name = MachOData.shared.stringTable[stringTableIndex.value] ?? ""
+        let name = MachOData.shared.stringTable[stringTableIndex.value] ?? "PD\(stringTableIndex.address)"
         return Nlist(stringTableIndex: stringTableIndex, type: type, sectionIndex: sectionIndex, description: description, valueAddress: valueAddress, name: name)
     }
 }

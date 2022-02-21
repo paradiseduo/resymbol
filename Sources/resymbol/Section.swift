@@ -463,13 +463,16 @@ extension Section {
             while index < stringTable.count {
                 var strData = Data()
                 var item = stringTable[index]
+                let start = index
                 while item != 0 {
                     strData.append(item)
                     index += 1
                     item = stringTable[index]
                 }
+                if let s = String(data: strData, encoding: String.Encoding.utf8), s.count > 0  {
+                    MachOData.shared.stringTable[start.string16()] = s
+                }
                 index += 1
-                MachOData.shared.stringTable[index.string16()] = String(data: strData, encoding: String.Encoding.utf8) ?? ""
             }
             dyldGroup.leave()
         }
@@ -482,9 +485,9 @@ extension Section {
             DispatchLimitQueue.shared.limit(queue: queueSymbol, group: dyldGroup, count: activeProcessorCount) {
                 let nlist = Nlist.nlist(binary, offset: offsetStart+Int(i)*16)
                 if dumpSymbol {
-                    print("\(nlist.valueAddress.value) \(nlist.name.count > 0 ? nlist.name : "PD\(i)")")
+                    print("\(nlist.valueAddress.value) \(nlist.name)")
                 } else {
-                    MachOData.shared.symbolTable[nlist.valueAddress.value] = nlist.name.count > 0 ? nlist.name : "PD\(i)"
+                    MachOData.shared.symbolTable[nlist.valueAddress.value] = nlist
                 }
                 dyldGroup.leave()
             }
@@ -499,13 +502,14 @@ extension Section {
             while index < stringTable.count {
                 var strData = Data()
                 var item = stringTable[index]
+                let start = index
                 while item != 0 {
                     strData.append(item)
                     index += 1
                     item = stringTable[index]
                 }
                 if let s = String(data: strData, encoding: String.Encoding.utf8), s.count > 0 {
-                    MachOData.shared.nominalOffsetMap[Int(section.offset)+index-s.count] = s
+                    MachOData.shared.nominalOffsetMap[Int(section.offset)+start] = s
                 }
                 index += 1
             }

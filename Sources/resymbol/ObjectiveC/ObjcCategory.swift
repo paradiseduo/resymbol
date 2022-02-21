@@ -36,7 +36,7 @@ struct ObjcCategory {
         var externalClassName = fixSymbolName(MachOData.shared.dylbMap[key]) ?? (MachOData.shared.objcClasses[classs.value.int16Replace()] ?? "")
         if externalClassName == "" {
             key = "00000001" + name.name.address
-            externalClassName = fixSymbolName(MachOData.shared.symbolTable[key]) ?? ""
+            externalClassName = fixSymbolName(MachOData.shared.symbolTable[key]?.name) ?? ""
         }
         
         var result = "@interface \(externalClassName)(\(name.className.value)) \(protocols.serialization()) //0x\(name.name.address) \n"
