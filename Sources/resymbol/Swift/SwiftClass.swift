@@ -13,7 +13,7 @@ struct SwiftSuperClass {
     
     static func SSC(_ binary: Data, offset: Int) -> SwiftSuperClass {
         let superclass = DataStruct.data(binary, offset: offset, length: 4)
-        let superclassType = DataStruct.textSwiftData(binary, offset: offset+superclass.value.int16Subtraction(), isClassName: true)
+        let superclassType = DataStruct.textSwiftData(binary, offset: offset+superclass.value.int16Subtraction(), isMangledName: false, isClassName: true)
         return SwiftSuperClass(superclass: superclass, superclassType: superclassType)
     }
 }

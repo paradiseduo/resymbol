@@ -31,7 +31,7 @@ struct SwiftBuiltin {
     let numExtraInhabitants: DataStruct
     
     static func SB(_ binary: Data, offset: inout Int) -> SwiftBuiltin {
-        let typeName = SwiftName.SN(binary, offset: offset, isClassName: false)
+        let typeName = SwiftName.SN(binary, offset: offset, isMangledName: false, isClassName: false)
         offset += 4
         let size = DataStruct.data(binary, offset: offset, length: 4)
         offset += 4

@@ -12,9 +12,9 @@ struct AssociatedTypeRecord {
     let substitutedTypeName: SwiftName
     
     static func AT(_ binary: Data, offset: inout Int) -> AssociatedTypeRecord {
-        let name = SwiftName.SN(binary, offset: offset, isClassName: false)
+        let name = SwiftName.SN(binary, offset: offset, isMangledName: false, isClassName: false)
         offset += 4
-        let substitutedTypeName = SwiftName.SN(binary, offset: offset, isClassName: false)
+        let substitutedTypeName = SwiftName.SN(binary, offset: offset, isMangledName: false, isClassName: false)
         offset += 4
         return AssociatedTypeRecord(name: name, substitutedTypeName: substitutedTypeName)
     }
@@ -28,9 +28,9 @@ struct SwiftAssocty {
     let associatedTypeRecords: [AssociatedTypeRecord]
     
     static func SA(_ binary: Data, offset: inout Int) -> SwiftAssocty {
-        let conformingTypeName = SwiftName.SN(binary, offset: offset, isClassName: false)
+        let conformingTypeName = SwiftName.SN(binary, offset: offset, isMangledName: false, isClassName: false)
         offset += 4
-        let protocolTypeName = SwiftName.SN(binary, offset: offset, isClassName: true)
+        let protocolTypeName = SwiftName.SN(binary, offset: offset, isMangledName: false, isClassName: true)
         offset += 4
         let numAssociatedTypes = DataStruct.data(binary, offset: offset, length: 4)
         offset += 4
