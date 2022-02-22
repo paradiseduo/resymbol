@@ -15,12 +15,14 @@ let queueWait = DispatchQueue(label: "com.Wait", qos: .userInteractive, attribut
 // 先进行dyld绑定和protocol的dump
 let dyldGroup = DispatchGroup()
 let queueDyld = DispatchQueue(label: "com.Dyld", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
-let queueSymbol = DispatchQueue(label: "com.Symbol", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueStringTable = DispatchQueue(label: "com.String.Table", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
+let queueSwiftRef = DispatchQueue(label: "com.Swift.Ref", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 let queueProtocol = DispatchQueue(label: "com.Protocol", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 let queueSwiftProtocols = DispatchQueue(label: "com.Swift.Protocols", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
 // 再进行class的dump，因为superclass依赖dyld的绑定结果和protocol
-let resymbolGroup = DispatchGroup()
+let symbolGroup = DispatchGroup()
+let queueSymbol = DispatchQueue(label: "com.Symbol", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 let queueClass = DispatchQueue(label: "com.Class", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 let queueSwiftProtocol = DispatchQueue(label: "com.Swift.Protocol", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target:nil)
 let queueSwiftAssocty = DispatchQueue(label: "com.Swift.Assocty", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
@@ -35,7 +37,7 @@ let queueSwiftTypes = DispatchQueue(label: "com.Swift.Types", qos: .userInteract
 let printGroup = DispatchGroup()
 let queuePrint = DispatchQueue(label: "com.Print.Class", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
-let activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount/2
+let activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount
 
 struct Section {
     
@@ -53,6 +55,7 @@ struct Section {
         var assocty: section_64?
         var builtin: section_64?
         var capture: section_64?
+        var symtab: symtab_command!
         var needSymbol = false
         
         let header = binary.extract(mach_header_64.self)
@@ -109,7 +112,11 @@ struct Section {
                 bindingDylb(binary, offSet: offset_machO, isByteSwapped: isByteSwapped, vmAddress: vmAddress)
             } else if loadCommand.cmd == LC_SYMTAB {
                 if needSymbol {
-                    readSymbol(binary, offSet: offset_machO, isByteSwapped: isByteSwapped)
+                    symtab = binary.extract(symtab_command.self, offset: offset_machO)
+                    if isByteSwapped {
+                        swap_symtab_command(&symtab, byteSwappedOrder)
+                    }
+                    handle_string_table(binary, symtab: symtab)
                 }
             } else if loadCommand.cmd == LC_DYSYMTAB {
 //                var dysymtab = binary.extract(dysymtab_command.self, offset: offset_machO)
@@ -123,6 +130,9 @@ struct Section {
         }
         dyldGroup.wait()
         dyldGroup.notify(qos: DispatchQoS.userInteractive, flags: DispatchWorkItemFlags.barrier, queue: queueWait) {
+            if needSymbol {
+                handle_string_table(binary, symtab: symtab)
+            }
             for section in classSections {
                 handle__objc_classlist(binary, section: section)
             }
@@ -135,8 +145,8 @@ struct Section {
             if let section = builtin {
                 handle__swift5_builtin(binary, section: section)
             }
-            resymbolGroup.wait()
-            resymbolGroup.notify(qos: DispatchQoS.userInteractive, flags: DispatchWorkItemFlags.barrier, queue: queueWait) {
+            symbolGroup.wait()
+            symbolGroup.notify(qos: DispatchQoS.userInteractive, flags: DispatchWorkItemFlags.barrier, queue: queueWait) {
                 if let section = swiftTypeSection {
                     handle__swift5_types(binary, section: section)
                 }
@@ -213,17 +223,27 @@ struct Section {
         }
         
         let header = binary.extract(mach_header_64.self)
+        var symtab: symtab_command!
         var offset_machO = MemoryLayout.size(ofValue: header)
         for _ in 0..<header.ncmds {
             let loadCommand = binary.extract(load_command.self, offset: offset_machO)
             if loadCommand.cmd == LC_SYMTAB {
-                readSymbol(binary, offSet: offset_machO, isByteSwapped: isByteSwapped, dumpSymbol: true)
+                symtab = binary.extract(symtab_command.self, offset: offset_machO)
+                if isByteSwapped {
+                    swap_symtab_command(&symtab, byteSwappedOrder)
+                }
                 break
             }
             offset_machO += Int(loadCommand.cmdsize)
         }
-        dyldGroup.notify(queue: DispatchQueue.main) {
-            handle(true)
+        handle_string_table(binary, symtab: symtab)
+        dyldGroup.wait()
+        dyldGroup.notify(queue: queueSymbol) {
+            handle_symbol_table(binary, symtab: symtab, dumpSymbol: true)
+            symbolGroup.wait()
+            symbolGroup.notify(queue: DispatchQueue.main) {
+                handle(true)
+            }
         }
     }
     
@@ -236,15 +256,6 @@ struct Section {
         Dyld.binding(binary, vmAddress: vmAddress, start: Int(dylib.weak_bind_off), end: Int(dylib.weak_bind_off+dylib.weak_bind_size))
         Dyld.binding(binary, vmAddress: vmAddress, start: Int(dylib.lazy_bind_off), end: Int(dylib.lazy_bind_off+dylib.lazy_bind_size), isLazy: true)
     }
-    
-    private static func readSymbol(_ binary: Data, offSet: Int, isByteSwapped: Bool, dumpSymbol: Bool = false) {
-        var symtab = binary.extract(symtab_command.self, offset: offSet)
-        if isByteSwapped {
-            swap_symtab_command(&symtab, byteSwappedOrder)
-        }
-        handle_string_table(binary, symtab: symtab)
-        handle_symbol_table(binary, symtab: symtab, dumpSymbol: dumpSymbol)
-    }
 }
 
 
@@ -253,8 +264,8 @@ extension Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>3
         for i in 0..<count {
-            resymbolGroup.enter()
-            DispatchLimitQueue.shared.limit(queue: queueClass, group: resymbolGroup, count: activeProcessorCount) {
+            symbolGroup.enter()
+            DispatchLimitQueue.shared.limit(queue: queueClass, group: symbolGroup, count: activeProcessorCount) {
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 var offsetS = sub.rawValueBig().int16Replace()
@@ -273,7 +284,7 @@ extension Section {
                     MachOData.shared.objcClasses[oc.isa.address.int16()] = oc.classRO.name.className.value
                     oc.serialization()
                 }
-                resymbolGroup.leave()
+                symbolGroup.leave()
             }
         }
     }
@@ -343,8 +354,8 @@ extension Section {
         let d = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         let count = d.count>>2
         for i in 0..<count {
-            resymbolGroup.enter()
-            DispatchLimitQueue.shared.limit(queue: queueSwiftProtocol, group: resymbolGroup, count: activeProcessorCount) {
+            symbolGroup.enter()
+            DispatchLimitQueue.shared.limit(queue: queueSwiftProtocol, group: symbolGroup, count: activeProcessorCount) {
                 let location = i<<2
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
                 var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
@@ -371,7 +382,7 @@ extension Section {
                 default:
                     break
                 }
-                resymbolGroup.leave()
+                symbolGroup.leave()
             }
         }
     }
@@ -417,26 +428,26 @@ extension Section {
     }
     
     private static func handle__swift5_assocty(_ binary: Data, section: section_64) {
-        resymbolGroup.enter()
-        DispatchLimitQueue.shared.limit(queue: queueSwiftAssocty, group: resymbolGroup, count: activeProcessorCount) {
+        symbolGroup.enter()
+        DispatchLimitQueue.shared.limit(queue: queueSwiftAssocty, group: symbolGroup, count: activeProcessorCount) {
             var index = Int(section.offset)
             let end = Int(section.offset) + Int(section.size)
             while index < end {
                 MachOData.shared.swiftAssocty.append(SwiftAssocty.SA(binary, offset: &index))
             }
-            resymbolGroup.leave()
+            symbolGroup.leave()
         }
     }
     
     private static func handle__swift5_builtin(_ binary: Data, section: section_64) {
-        resymbolGroup.enter()
-        DispatchLimitQueue.shared.limit(queue: queueSwiftBuiltin, group: resymbolGroup, count: activeProcessorCount) {
+        symbolGroup.enter()
+        DispatchLimitQueue.shared.limit(queue: queueSwiftBuiltin, group: symbolGroup, count: activeProcessorCount) {
             var index = Int(section.offset)
             let end = Int(section.offset) + Int(section.size)
             while index < end {
                 MachOData.shared.swiftBuiltin.append(SwiftBuiltin.SB(binary, offset: &index))
             }
-            resymbolGroup.leave()
+            symbolGroup.leave()
         }
     }
     
@@ -456,9 +467,9 @@ extension Section {
 
 extension Section {
     private static func handle_string_table(_ binary: Data, symtab: symtab_command) {
+        let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.stroff), length: Int(symtab.strsize)))!)
         dyldGroup.enter()
-        DispatchLimitQueue.shared.limit(queue: queueSymbol, group: dyldGroup, count: activeProcessorCount) {
-            let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(symtab.stroff), length: Int(symtab.strsize)))!)
+        DispatchLimitQueue.shared.limit(queue: queueStringTable, group: dyldGroup, count: activeProcessorCount) {
             var index = 0
             while index < stringTable.count {
                 var strData = Data()
@@ -482,10 +493,10 @@ extension Section {
         let offsetStart = Int(symtab.symoff)
         for i in 0..<symtab.nsyms {
             dyldGroup.enter()
-            DispatchLimitQueue.shared.limit(queue: queueSymbol, group: dyldGroup, count: activeProcessorCount) {
+            DispatchLimitQueue.shared.limit(queue: queueSymbol, group: symbolGroup, count: activeProcessorCount) {
                 let nlist = Nlist.nlist(binary, offset: offsetStart+Int(i)*16)
                 if dumpSymbol {
-                    print("\(nlist.valueAddress.value) \(nlist.name)")
+                    print("\(nlist.valueAddress.value) \(nlist.name())")
                 } else {
                     MachOData.shared.symbolTable[nlist.valueAddress.value] = nlist
                 }
@@ -495,9 +506,9 @@ extension Section {
     }
     
     private static func handle__swift5_ref(_ binary: Data, section: section_64) {
+        let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
         dyldGroup.enter()
-        DispatchLimitQueue.shared.limit(queue: queueSymbol, group: dyldGroup, count: activeProcessorCount) {
-            let stringTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(section.offset), length: Int(section.size)))!)
+        DispatchLimitQueue.shared.limit(queue: queueSwiftRef, group: dyldGroup, count: activeProcessorCount) {
             var index = 0
             while index < stringTable.count {
                 var strData = Data()
