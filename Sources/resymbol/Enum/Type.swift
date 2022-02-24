@@ -58,3 +58,154 @@ enum BindType: Int32 {
     }
 }
 
+enum SwiftTypeEnum: Int, CustomStringConvertible {
+    /// This context descriptor represents a module.
+    case Module = 0
+    
+    /// This context descriptor represents an extension.
+    case Extension = 1
+    
+    /// This context descriptor represents an anonymous possibly-generic context
+    /// such as a function body.
+    case Anonymous = 2
+    
+    /// This context descriptor represents a protocol context.
+    case SwiftProtocol = 3
+    
+    /// This context descriptor represents an opaque type alias.
+    case OpaqueType = 4
+    
+    /// First kind that represents a type of any sort.
+    //case Type_First = 16
+    
+    /// This context descriptor represents a class.
+    case Class = 16 // Type_First
+    
+    /// This context descriptor represents a struct.
+    case Struct = 17 // Type_First + 1
+    
+    /// This context descriptor represents an enum.
+    case Enum = 18 // Type_First + 2
+    
+    /// Last kind that represents a type of any sort.
+    case Type_Last = 31
+    
+    case Unknow = 0xFF // It's not in swift source, this value only used for dump
+    
+    var description: String {
+        switch self {
+        case .Module: return "module"
+        case .Extension: return "extension"
+        case .Anonymous: return "anonymous"
+        case .SwiftProtocol: return "protocol"
+        case .OpaqueType: return "OpaqueType"
+        case .Class: return "class"
+        case .Struct: return "struct"
+        case .Enum: return "enum"
+        case .Type_Last: return "Type_Last"
+        case .Unknow: return "unknow"
+        }
+    }
+}
+
+enum SwiftTypeContextDescriptorFlag: UInt16 {
+    // All of these values are bit offsets or widths.
+    // Generic flags build upwards from 0.
+    // Type-specific flags build downwards from 15.
+
+    /// Whether there's something unusual about how the metadata is
+    /// initialized.
+    ///
+    /// Meaningful for all type-descriptor kinds.
+    case MetadataInitialization = 0
+//    case MetadataInitialization_width = 2
+    
+    /// Set if the type has extended import information.
+    ///
+    /// If true, a sequence of strings follow the null terminator in the
+    /// descriptor, terminated by an empty string (i.e. by two null
+    /// terminators in a row).  See TypeImportInfo for the details of
+    /// these strings and the order in which they appear.
+    ///
+    /// Meaningful for all type-descriptor kinds.
+    case HasImportInfo = 2
+    
+    /// Set if the type descriptor has a pointer to a list of canonical
+    /// prespecializations.
+    case HasCanonicalMetadataPrespecializations = 3
+    
+    // Type-specific flags:
+
+    /// Set if the class is an actor.
+    ///
+    /// Only meaningful for class descriptors.
+    case Class_IsActor = 7
+    
+    /// Set if the class is a default actor class.  Note that this is
+    /// based on the best knowledge available to the class; actor
+    /// classes with resilient superclassess might be default actors
+    /// without knowing it.
+    ///
+    /// Only meaningful for class descriptors.
+    case Class_IsDefaultActor = 8
+    
+    /// The kind of reference that this class makes to its resilient superclass
+    /// descriptor.  A TypeReferenceKind.
+    ///
+    /// Only meaningful for class descriptors.
+    case Class_ResilientSuperclassReferenceKind = 9
+//    case Class_ResilientSuperclassReferenceKind_width = 3
+    
+    /// Whether the immediate class members in this metadata are allocated
+    /// at negative offsets.  For now, we don't use this.
+    case Class_AreImmediateMembersNegative = 12
+
+    /// Set if the context descriptor is for a class with resilient ancestry.
+    ///
+    /// Only meaningful for class descriptors.
+    case Class_HasResilientSuperclass = 13
+
+    /// Set if the context descriptor includes metadata for dynamically
+    /// installing method overrides at metadata instantiation time.
+    case Class_HasOverrideTable = 14
+
+    /// Set if the context descriptor includes metadata for dynamically
+    /// constructing a class's vtables at metadata instantiation time.
+    ///
+    /// Only meaningful for class descriptors.
+    case Class_HasVTable = 15
+    
+    static func STCDF(value: UInt16) -> [SwiftTypeContextDescriptorFlag] {
+        var flags = [SwiftTypeContextDescriptorFlag]()
+        let er = String(value, radix: 2)
+        for (i, item) in er.reversed().enumerated() {
+            if item == "1" {
+                switch i {
+                case 0:
+                    flags.append(SwiftTypeContextDescriptorFlag.MetadataInitialization)
+                case 2:
+                    flags.append(SwiftTypeContextDescriptorFlag.HasImportInfo)
+                case 3:
+                    flags.append(SwiftTypeContextDescriptorFlag.HasCanonicalMetadataPrespecializations)
+                case 7:
+                    flags.append(SwiftTypeContextDescriptorFlag.Class_IsActor)
+                case 8:
+                    flags.append(SwiftTypeContextDescriptorFlag.Class_IsDefaultActor)
+                case 9:
+                    flags.append(SwiftTypeContextDescriptorFlag.Class_ResilientSuperclassReferenceKind)
+                case 12:
+                    flags.append(SwiftTypeContextDescriptorFlag.Class_AreImmediateMembersNegative)
+                case 13:
+                    flags.append(SwiftTypeContextDescriptorFlag.Class_HasResilientSuperclass)
+                case 14:
+                    flags.append(SwiftTypeContextDescriptorFlag.Class_HasOverrideTable)
+                case 15:
+                    flags.append(SwiftTypeContextDescriptorFlag.Class_HasVTable)
+                default:
+                    continue
+                }
+            }
+        }
+        return flags
+    }
+}

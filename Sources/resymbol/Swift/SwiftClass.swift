@@ -25,6 +25,10 @@ struct SwiftClass {
     let metadataPositiveSizeInWords: DataStruct
     let numImmediateMembers: DataStruct
     let numFields: DataStruct
+    let genericArgumentOffset: DataStruct
+    let vtableOffset: DataStruct
+    let vtableSize: DataStruct
+    let methods: [SwiftMethod]
     let fieldOffsetVectorOffset: DataStruct
     
     static func SC(_ binary: Data, offset: Int, flags: SwiftFlags) -> SwiftClass {
@@ -34,9 +38,40 @@ struct SwiftClass {
         let metadataPositiveSizeInWords = DataStruct.data(binary, offset: offset+24, length: 4)
         let numImmediateMembers = DataStruct.data(binary, offset: offset+28, length: 4)
         let numFields = DataStruct.data(binary, offset: offset+32, length: 4)
-        let fieldOffsetVectorOffset = DataStruct.data(binary, offset: offset+36, length: 4)
         
-        return SwiftClass(type: type, superclassType: superclassType, metadataNegativeSizeInWords: metadataNegativeSizeInWords, metadataPositiveSizeInWords: metadataPositiveSizeInWords, numImmediateMembers: numImmediateMembers, numFields: numFields, fieldOffsetVectorOffset: fieldOffsetVectorOffset)
+        let address = offset.string16()
+        var genericArgumentOffset = DataStruct(address: address, value: "00000000")
+        var newOffset = offset+32
+        if !type.flags.typeContextDescriptorFlags.contains(where: { t in
+            return t == .Class_HasResilientSuperclass
+        }) {
+            newOffset += 4
+            genericArgumentOffset = DataStruct.data(binary, offset: newOffset, length: 4)
+        }
+
+        var vtableOffset = DataStruct(address: address, value: "00000000")
+        var vtableSize = DataStruct(address: address, value: "00000000")
+        var methods = [SwiftMethod]()
+        if type.flags.typeContextDescriptorFlags.contains(where: { t in
+            return t == .Class_HasVTable
+        }) {
+            newOffset += 4
+            vtableOffset = DataStruct.data(binary, offset: newOffset, length: 4)
+            newOffset += 4
+            vtableSize = DataStruct.data(binary, offset: newOffset, length: 4)
+            for _ in 0..<vtableSize.value.int16() {
+                newOffset += 4
+                methods.append(SwiftMethod.SM(binary, offset: &newOffset))
+            }
+        }
+        
+        var fieldOffsetVectorOffset = DataStruct(address: address, value: "00000000")
+        if type.fieldDescriptor.fieldDescriptor.value.int16() != 0 {
+            newOffset += 4
+            fieldOffsetVectorOffset = DataStruct.data(binary, offset: newOffset, length: 4)
+        }
+
+        return SwiftClass(type: type, superclassType: superclassType, metadataNegativeSizeInWords: metadataNegativeSizeInWords, metadataPositiveSizeInWords: metadataPositiveSizeInWords, numImmediateMembers: numImmediateMembers, numFields: numFields, genericArgumentOffset: genericArgumentOffset, vtableOffset: vtableOffset, vtableSize: vtableSize, methods: methods, fieldOffsetVectorOffset: fieldOffsetVectorOffset)
     }
     
     func serialization() {
