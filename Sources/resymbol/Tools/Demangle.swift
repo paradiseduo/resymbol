@@ -126,7 +126,7 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
         return dataStruct.value
     }
     let hexName: String = dataStruct.value.removingPrefix("0x")
-    let data = hexName.hexData
+    var data = hexName.hexData
     let startAddress = dataStruct.address.int16()
     
     var mangledName: String = ""
@@ -139,9 +139,7 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             let fromIdx: Int = i + 1 // ignore 0x01
             let toIdx: Int = i + 5 // 4 bytes
             if (toIdx > data.count) {
-                mangledName = mangledName + String(format: "%c", val)
-                i += 1
-                continue
+                data.append(Data(repeating: 0, count: toIdx-data.count))
             }
             let subData = data[fromIdx..<toIdx]
             let address = subData.rawValueBig().int16() + startAddress + fromIdx
@@ -165,7 +163,10 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
         } else if (val == 0x02) {
             //indirectly
             let fromIdx: Int = i + 1 // ignore 0x02
-            let toIdx: Int = ((i + 4) > data.count) ? data.count : (i + 4) // 4 bytes
+            let toIdx: Int = i + 4 // 4 bytes
+            if (toIdx > data.count) {
+                data.append(Data(repeating: 0, count: toIdx-data.count))
+            }
             
             let subData = data[fromIdx..<toIdx]
             let address = subData.rawValueBig().int16() + startAddress + fromIdx
