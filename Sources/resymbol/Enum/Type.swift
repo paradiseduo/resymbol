@@ -209,3 +209,52 @@ enum SwiftTypeContextDescriptorFlag: UInt16 {
         return flags
     }
 }
+
+
+enum SwiftMethodKind: Int {
+    case Method = 0
+    case Init = 1
+    case Getter = 2
+    case Setter = 3
+    case Modify = 4
+    case Read = 5
+    
+    static func getKind(value: Int) -> SwiftMethodKind {
+        switch (value & SwiftMethodType.Kind.rawValue) {
+        case SwiftMethodKind.Method.rawValue:
+            return SwiftMethodKind.Method
+        case SwiftMethodKind.Init.rawValue:
+            return SwiftMethodKind.Init
+        case SwiftMethodKind.Getter.rawValue:
+            return SwiftMethodKind.Getter
+        case SwiftMethodKind.Setter.rawValue:
+            return SwiftMethodKind.Setter
+        case SwiftMethodKind.Modify.rawValue:
+            return SwiftMethodKind.Modify
+        case SwiftMethodKind.Read.rawValue:
+            return SwiftMethodKind.Read
+        default:
+            return SwiftMethodKind.Method
+        }
+    }
+}
+
+enum SwiftMethodType: Int {
+    case Kind = 0x0F
+    case Instance = 0x10
+    case Dynamic = 0x20
+    case ExtraDiscriminator = 0xFFFF0000
+    
+    static func getType(value: Int) -> SwiftMethodType {
+        if value & SwiftMethodType.Instance.rawValue == SwiftMethodType.Instance.rawValue {
+            return SwiftMethodType.Instance
+        }
+        if value & SwiftMethodType.Dynamic.rawValue == SwiftMethodType.Dynamic.rawValue {
+            return SwiftMethodType.Dynamic
+        }
+        if value & SwiftMethodType.ExtraDiscriminator.rawValue == SwiftMethodType.ExtraDiscriminator.rawValue {
+            return SwiftMethodType.ExtraDiscriminator
+        }
+        return SwiftMethodType.Kind
+    }
+}

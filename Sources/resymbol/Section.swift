@@ -41,7 +41,7 @@ let activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount
 
 struct Section {
     
-    static func readSection(_ binary: Data, type:BitType, isByteSwapped: Bool, handle: @escaping (Bool)->()) {
+    static func readSection(_ binary: Data, type:BitType, isByteSwapped: Bool, symbol: Bool = false, handle: @escaping (Bool)->()) {
         if type == .x64_fat || type == .x86_fat || type == .none || type == .x86 {
             print("Only Support x64")
             handle(false)
@@ -56,7 +56,7 @@ struct Section {
         var builtin: section_64?
         var capture: section_64?
         var symtab: symtab_command!
-        var needSymbol = false
+        var needSymbol = symbol
         
         let header = binary.extract(mach_header_64.self)
         var offset_machO = MemoryLayout.size(ofValue: header)
