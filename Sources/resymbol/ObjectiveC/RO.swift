@@ -8,7 +8,7 @@
 import Foundation
 
 struct RO {
-    let rawValue : UInt8
+    let rawValue : Int
 
     static let _META   = RO(rawValue: 1 << 0)
     static let _ROOT  = RO(rawValue: 1 << 1)

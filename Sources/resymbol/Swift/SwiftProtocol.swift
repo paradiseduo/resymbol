@@ -18,7 +18,7 @@ struct ProtocolDescriptor {
     static func PD(_ binary: Data, offset: Int) -> ProtocolDescriptor {
         let flag = SwiftFlags.SF(binary, offset: offset)
         let parent = SwiftParent.SP(binary, offset: offset+4)
-        let name = SwiftName.SN(binary, offset: offset+8, isClassName: true)
+        let name = SwiftName.SN(binary, offset: offset+8, isMangledName: false, isClassName: true)
         let numRequirementsInSignature = DataStruct.data(binary, offset: offset+12, length: 4)
         let numRequirements = DataStruct.data(binary, offset: offset+16, length: 4)
         let associatedTypeNames = DataStruct.data(binary, offset: offset+20, length: 4)
@@ -40,7 +40,7 @@ struct NominalTypeDescriptor {
     
     static func NT(_ binary: Data, offset: Int) -> NominalTypeDescriptor {
         let nominalTypeDescriptor = DataStruct.data(binary, offset: offset, length: 4)
-        let nominalTypeName = DataStruct.textSwiftData(binary, offset: offset+nominalTypeDescriptor.value.int16Subtraction(), isClassName: true)
+        let nominalTypeName = DataStruct.textSwiftData(binary, offset: offset+nominalTypeDescriptor.value.int16Subtraction(), isMangledName: false, isClassName: true)
         return NominalTypeDescriptor(nominalTypeDescriptor: nominalTypeDescriptor, nominalTypeName: nominalTypeName)
     }
 }

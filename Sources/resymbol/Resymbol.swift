@@ -23,6 +23,9 @@ struct Resymbol: ParsableCommand {
     @Flag(name: .shortAndLong, help: "Dump Symbol Table.")
     var symbol = false
     
+    @Flag(name: .shortAndLong, help: "Dump Class.")
+    var `class` = false
+    
     mutating func run() throws {
         if ipa {
             
@@ -33,8 +36,14 @@ struct Resymbol: ParsableCommand {
                     let fh = binary.extract(fat_header.self)
                     BitType.checkType(machoPath: filePath, header: fh) { type, isByteSwapped in
                         if symbol {
-                            Section.dumpSymbol(binary, type: type, isByteSwapped: isByteSwapped) { result in
-                                running = false
+                            if `class` {
+                                Section.readSection(binary, type: type, isByteSwapped: isByteSwapped, symbol: symbol) { result in
+                                    running = false
+                                }
+                            } else {
+                                Section.dumpSymbol(binary, type: type, isByteSwapped: isByteSwapped) { result in
+                                    running = false
+                                }
                             }
                         } else {
                             Section.readSection(binary, type: type, isByteSwapped: isByteSwapped) { result in
@@ -42,6 +51,8 @@ struct Resymbol: ParsableCommand {
                             }
                         }
                     }
+                } else {
+                    running = false
                 }
             }
         }

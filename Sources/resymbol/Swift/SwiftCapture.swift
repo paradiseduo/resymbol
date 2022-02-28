@@ -11,7 +11,7 @@ struct CaptureTypeRecord {
     let mangledTypeName: SwiftName
     
     static func CTR(_ binary: Data, offset: inout Int) -> CaptureTypeRecord {
-        let mangledTypeName = SwiftName.SN(binary, offset: offset, isClassName: false)
+        let mangledTypeName = SwiftName.SN(binary, offset: offset, isMangledName: false, isClassName: false)
         offset += 4
         return CaptureTypeRecord(mangledTypeName: mangledTypeName)
     }
@@ -22,9 +22,9 @@ struct MetadataSourceRecord {
     let mangledMetadataSource: SwiftName
     
     static func MSR(_ binary: Data, offset: inout Int) -> MetadataSourceRecord {
-        let mangledTypeName = SwiftName.SN(binary, offset: offset, isClassName: false)
+        let mangledTypeName = SwiftName.SN(binary, offset: offset, isMangledName: false, isClassName: false)
         offset += 4
-        let mangledMetadataSource = SwiftName.SN(binary, offset: offset, isClassName: false)
+        let mangledMetadataSource = SwiftName.SN(binary, offset: offset, isMangledName: false, isClassName: false)
         offset += 4
         return MetadataSourceRecord(mangledTypeName: mangledTypeName, mangledMetadataSource: mangledMetadataSource)
     }
