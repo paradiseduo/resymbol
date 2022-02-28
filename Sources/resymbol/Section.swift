@@ -268,18 +268,12 @@ extension Section {
             DispatchLimitQueue.shared.limit(queue: queueClass, group: symbolGroup, count: activeProcessorCount) {
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
-                var offsetS = sub.rawValueBig().int16Replace()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
+                let offsetS = sub.rawValueBig().int16Replace().alignment()
                 if offsetS > 0 {
                     var oc = ObjcClass.OC(binary, offset: offsetS)
                     
                     let isa = DataStruct.data(binary, offset: offsetS, length: 8)
-                    var metaClassOffset = isa.value.int16Replace()
-                    if metaClassOffset % 4 != 0 {
-                        metaClassOffset -= metaClassOffset%4
-                    }
+                    let metaClassOffset = isa.value.int16Replace().alignment()
                     oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
                     MachOData.shared.objcClasses[oc.isa.address.int16()] = oc.classRO.name.className.value
                     oc.serialization()
@@ -297,10 +291,7 @@ extension Section {
             DispatchLimitQueue.shared.limit(queue: queueCategory, group: categoryGroup, count: activeProcessorCount) {
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
-                var offsetS = sub.rawValueBig().int16Replace()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
+                let offsetS = sub.rawValueBig().int16Replace().alignment()
                 ObjcCategory.OCCG(binary, offset: offsetS).serialization()
                 categoryGroup.leave()
             }
@@ -315,10 +306,7 @@ extension Section {
             DispatchLimitQueue.shared.limit(queue: queueProtocol, group: dyldGroup, count: activeProcessorCount) {
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
-                var offsetS = sub.rawValueBig().int16Replace()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
+                let offsetS = sub.rawValueBig().int16Replace().alignment()
                 let pr = ObjcProtocol.OCPT(binary, offset: offsetS)
                 MachOData.shared.objcProtocols[pr.isa.address.int16()] = pr.name.className.value
                 pr.serialization()
@@ -338,10 +326,7 @@ extension Section {
             DispatchLimitQueue.shared.limit(queue: queueSwiftProtocols, group: dyldGroup, count: activeProcessorCount) {
                 let location = i<<2
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-                var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
+                let offsetS = (Int(section.offset) + location + sub.rawValueBig().int16Subtraction()).alignment()
                 let p = ProtocolDescriptor.PD(binary, offset: offsetS)
                 p.serialization()
                 MachOData.shared.swiftProtocols[offsetS] = p.name.swiftName.value
@@ -358,10 +343,7 @@ extension Section {
             DispatchLimitQueue.shared.limit(queue: queueSwiftProtocol, group: symbolGroup, count: activeProcessorCount) {
                 let location = i<<2
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-                var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
+                let offsetS = (Int(section.offset) + location + sub.rawValueBig().int16Subtraction()).alignment()
                 let p = SwiftProtocol.SP(binary, offset: offsetS)
                 var nominalName = ""
                 switch p.nominalTypeDescriptor.nominalTypeDescriptor.value.int16Subtraction() & 0x3 {
@@ -395,10 +377,7 @@ extension Section {
             DispatchLimitQueue.shared.limit(queue: queueSwiftTypes, group: categoryGroup, count: activeProcessorCount) {
                 let location = i<<2
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-                var offsetS = Int(section.offset) + location + sub.rawValueBig().int16Subtraction()
-                if offsetS % 4 != 0 {
-                    offsetS -= offsetS%4
-                }
+                let offsetS = (Int(section.offset) + location + sub.rawValueBig().int16Subtraction()).alignment()
                 let flags = SwiftFlags.SF(binary, offset: offsetS)
                 switch flags.kind {
                 case .Class:

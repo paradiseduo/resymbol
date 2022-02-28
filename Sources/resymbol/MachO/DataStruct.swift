@@ -17,7 +17,7 @@ struct DataStruct {
     
     static func data(_ binary: Data, offset: Int, length: Int) -> DataStruct {
         if offset > 0 {
-            let b = binary[offset..<offset+length]
+            let b = binary.subdata(in: Range<Data.Index>(NSRange(location: offset, length: length))!)
             #if DEBUG_FLAG
             return DataStruct(address: offset.string16(), data: b, dataString: b.rawValue(), value: b.rawValueBig())
             #endif

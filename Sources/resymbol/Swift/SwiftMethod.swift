@@ -13,7 +13,7 @@ struct SwiftMethodImpl {
     
     static func SMI(_ binary: Data, offset: inout Int) -> SwiftMethodImpl {
         let impl = DataStruct.data(binary, offset: offset, length: 4)
-        let implOffset = DataStruct.data(binary, offset: offset+impl.value.int16Subtraction(), length: 4)
+        let implOffset = DataStruct.data(binary, offset: (offset+impl.value.int16Subtraction()).alignment(), length: 4)
         offset += 4
         return SwiftMethodImpl(impl: impl, implOffset: implOffset)
     }
@@ -51,7 +51,7 @@ struct OverrideMethod {
     
     static func OM(_ binary: Data, offset: inout Int) -> OverrideMethod {
         let overrideOffset = DataStruct.data(binary, offset: offset, length: 4)
-        var newOffset = offset+overrideOffset.value.int16Subtraction()
+        var newOffset = (offset+overrideOffset.value.int16Subtraction()).alignment()
         offset += 4
         let overrideMethod = SwiftMethod.SM(binary, offset: &newOffset)
         return OverrideMethod(overrideOffset: overrideOffset, overrideMethod: overrideMethod)
