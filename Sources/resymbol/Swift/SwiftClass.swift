@@ -154,7 +154,14 @@ struct SwiftClass {
         if methods.count > 0 {
             result += "\n"
             for item in methods {
-                result += "    func \(item.impl.implOffset.address)(){}\n"
+                let addr = item.impl.implOffset.address
+                if item.impl.implOffset.value != "00000000" {
+                    if let nlist = MachOData.shared.symbolTable["00000001\(addr)"], let s = nlist.name(demangle: true) {
+                        result += "    func \(s)(){}\n"
+                    } else {
+                        result += "    func \(addr)(){}\n"
+                    }
+                }
             }
         }
         result += "}\n"

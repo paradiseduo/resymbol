@@ -72,8 +72,16 @@ struct Nlist {
     let description: DataStruct
     let valueAddress: DataStruct
     
-    func name() -> String {
-        return MachOData.shared.stringTable[stringTableIndex.value] ?? "PD\(stringTableIndex.address)"
+    func name(demangle: Bool = false) -> String? {
+        if let s = MachOData.shared.stringTable[stringTableIndex.value] {
+            if demangle {
+                return swift_demangle(s)
+            } else {
+                return s
+            }
+        } else {
+            return stringTableIndex.address
+        }
     }
     
     static func nlist(_ binary: Data, offset: Int) -> Nlist {

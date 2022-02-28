@@ -131,7 +131,7 @@ struct Section {
         dyldGroup.wait()
         dyldGroup.notify(qos: DispatchQoS.userInteractive, flags: DispatchWorkItemFlags.barrier, queue: queueWait) {
             if needSymbol {
-                handle_string_table(binary, symtab: symtab)
+                handle_symbol_table(binary, symtab: symtab)
             }
             for section in classSections {
                 handle__objc_classlist(binary, section: section)
@@ -496,7 +496,7 @@ extension Section {
             DispatchLimitQueue.shared.limit(queue: queueSymbol, group: symbolGroup, count: activeProcessorCount) {
                 let nlist = Nlist.nlist(binary, offset: offsetStart+Int(i)*16)
                 if dumpSymbol {
-                    print("\(nlist.valueAddress.value) \(nlist.name())")
+                    print("\(nlist.valueAddress.value) \(nlist.name() ?? "")")
                 } else {
                     MachOData.shared.symbolTable[nlist.valueAddress.value] = nlist
                 }
