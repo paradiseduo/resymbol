@@ -69,16 +69,16 @@ struct DataStruct {
         var strData = Data()
         while true {
             let item = binary[start]
-            let itemNext = binary[start+1]
-            if isMangledName && strData.first == 0x2 {
-                if item == 0 && itemNext == 0 {
-                    return read(strData: strData, offset: offset, isMangledName: isMangledName, isClassName: isClassName)
-                }
-            } else {
+//            let itemNext = binary[start+1]
+//            if isMangledName && strData.first == 0x2 {
+//                if item == 0 && itemNext == 0 {
+//                    return read(strData: strData, offset: offset, isMangledName: isMangledName, isClassName: isClassName)
+//                }
+//            } else {
                 if item == 0 {
                     return read(strData: strData, offset: offset, isMangledName: isMangledName, isClassName: isClassName)
                 }
-            }
+//            }
             strData.append(item)
             start += 1
         }

@@ -37,7 +37,7 @@ let queueSwiftTypes = DispatchQueue(label: "com.Swift.Types", qos: .userInteract
 let printGroup = DispatchGroup()
 let queuePrint = DispatchQueue(label: "com.Print.Class", qos: .userInteractive, attributes: [.concurrent], autoreleaseFrequency: .inherit, target: nil)
 
-let activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount
+let activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount/2
 
 struct Section {
     
