@@ -43,7 +43,7 @@ struct Section {
     
     static func readSection(_ binary: Data, type:BitType, isByteSwapped: Bool, symbol: Bool = false, handle: @escaping (Bool)->()) {
         if type == .x64_fat || type == .x86_fat || type == .none || type == .x86 {
-            print("Only Support x64")
+            ConsoleIO.writeMessage("Only Support x64", .error)
             handle(false)
             return
         }
@@ -124,7 +124,7 @@ struct Section {
 //                    swap_dysymtab_command(&dysymtab, byteSwappedOrder)
 //                }
 //                let indirectSymbolTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(dysymtab.indirectsymoff), length: Int(dysymtab.nindirectsyms*4)))!)
-//                printf(indirectSymbolTable)
+//                ConsoleIO.writeMessage(indirectSymbolTable, .debug)
             }
             offset_machO += Int(loadCommand.cmdsize)
         }
@@ -217,7 +217,7 @@ struct Section {
     
     static func dumpSymbol(_ binary: Data, type:BitType, isByteSwapped: Bool, handle: @escaping (Bool)->()) {
         if type == .x64_fat || type == .x86_fat || type == .none || type == .x86 {
-            print("Only Support x64")
+            ConsoleIO.writeMessage("Only Support x64", .error)
             handle(false)
             return
         }
@@ -475,7 +475,7 @@ extension Section {
             DispatchLimitQueue.shared.limit(queue: queueSymbol, group: symbolGroup, count: activeProcessorCount) {
                 let nlist = Nlist.nlist(binary, offset: offsetStart+Int(i)*16)
                 if dumpSymbol {
-                    print("\(nlist.valueAddress.value) \(nlist.name() ?? "")")
+                    ConsoleIO.writeMessage("\(nlist.valueAddress.value) \(nlist.name() ?? "")")
                 } else {
                     MachOData.shared.symbolTable[nlist.valueAddress.value] = nlist
                 }

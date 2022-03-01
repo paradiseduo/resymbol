@@ -69,7 +69,7 @@ class SyncDictionary<V: Hashable, T>: Collection {
     }
     
     func description() {
-        print(dictionary)
+        ConsoleIO.writeMessage(dictionary, .debug)
     }
 
 }

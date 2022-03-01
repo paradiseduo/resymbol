@@ -32,18 +32,18 @@ struct Dyld {
                 cccccc += 1
                 switch opcode {
                 case BIND_OPCODE_DONE:
-                    printf("BIND_OPCODE: DONE")
+                    ConsoleIO.writeMessage("BIND_OPCODE: DONE", .debug)
                     if !isLazy {
                         done = true
                     }
                     break
                 case BIND_OPCODE_SET_DYLIB_ORDINAL_IMM:
                     libraryOrdinal = immediate
-                    printf("BIND_OPCODE: SET_DYLIB_ORDINAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: SET_DYLIB_ORDINAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)", .debug)
                     break
                 case BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB:
                     libraryOrdinal = Int32(binary.read_uleb128(index: &index, end: end))
-                    printf("BIND_OPCODE: SET_DYLIB_ORDINAL_ULEB,         libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: SET_DYLIB_ORDINAL_ULEB,         libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)", .debug)
                     break
                 case BIND_OPCODE_SET_DYLIB_SPECIAL_IMM:
                     if immediate == 0 {
@@ -51,7 +51,7 @@ struct Dyld {
                     } else {
                         libraryOrdinal = immediate | BIND_OPCODE_MASK
                     }
-                    printf("BIND_OPCODE: SET_DYLIB_SPECIAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: SET_DYLIB_SPECIAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)", .debug)
                     break
                 case BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM:
                     var strData = Data()
@@ -62,43 +62,43 @@ struct Dyld {
                     index += 1
                     symbolName = String(data: strData, encoding: String.Encoding.utf8) ?? ""
                     symbolFlags = immediate
-                    printf("BIND_OPCODE: SET_SYMBOL_TRAILING_FLAGS_IMM,  flags: \(String(format: "%02x", symbolFlags)), str = \(symbolName)  index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: SET_SYMBOL_TRAILING_FLAGS_IMM,  flags: \(String(format: "%02x", symbolFlags)), str = \(symbolName)  index: \(cccccc)", .debug)
                     break
                 case BIND_OPCODE_SET_TYPE_IMM:
                     type = immediate
-                    printf("BIND_OPCODE: SET_TYPE_IMM,                   type = \(type) \(BindType.description(immediate))   index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: SET_TYPE_IMM,                   type = \(type) \(BindType.description(immediate))   index: \(cccccc)", .debug)
                     break
                 case BIND_OPCODE_SET_ADDEND_SLEB:
                     addend = binary.read_sleb128(index: &index, end: end)
-                    printf("BIND_OPCODE: SET_ADDEND_SLEB,                addend = \(addend)  index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: SET_ADDEND_SLEB,                addend = \(addend)  index: \(cccccc)", .debug)
                     break
                 case BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB:
                     segmentIndex = immediate
                     let r = binary.read_uleb128(index: &index, end: end)
-                    printf("BIND_OPCODE: SET_SEGMENT_AND_OFFSET_ULEB,    segmentIndex: \(segmentIndex), offset: \(String(format: "0x%016llx", r))  index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: SET_SEGMENT_AND_OFFSET_ULEB,    segmentIndex: \(segmentIndex), offset: \(String(format: "0x%016llx", r))  index: \(cccccc)", .debug)
                     address = (vmAddress[Int(segmentIndex)] &+ r)
-                    printf("    address = \(String(format: "0x%016llx", address))")
+                    ConsoleIO.writeMessage("    address = \(String(format: "0x%016llx", address))", .debug)
                     break
                 case BIND_OPCODE_ADD_ADDR_ULEB:
                     let r = binary.read_uleb128(index: &index, end: end)
-                    printf("BIND_OPCODE: ADD_ADDR_ULEB,                  \(address) += \(String(format: "0x%016llx", r))  index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: ADD_ADDR_ULEB,                  \(address) += \(String(format: "0x%016llx", r))  index: \(cccccc)", .debug)
                     address &+= r
                     break
                 case BIND_OPCODE_DO_BIND:
-                    printf("BIND_OPCODE: DO_BIND")
+                    ConsoleIO.writeMessage("BIND_OPCODE: DO_BIND", .debug)
                     set(address: address, vaule: symbolName)
                     bindCount += 1
                     address &+= ptrSize
                     break
                 case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
                     let r = binary.read_uleb128(index: &index, end: end)
-                    printf("BIND_OPCODE: DO_BIND_ADD_ADDR_ULEB,          \(address) += \(ptrSize) + \(String(format: "%016llx", r))  index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: DO_BIND_ADD_ADDR_ULEB,          \(address) += \(ptrSize) + \(String(format: "%016llx", r))  index: \(cccccc)", .debug)
                     set(address: address, vaule: symbolName)
                     bindCount += 1
                     address &+= (ptrSize &+ r)
                     break
                 case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
-                    printf("BIND_OPCODE: DO_BIND_ADD_ADDR_IMM_SCALED,    \(address) += \(ptrSize) * \((ptrSize * UInt64(immediate)))  index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: DO_BIND_ADD_ADDR_IMM_SCALED,    \(address) += \(ptrSize) * \((ptrSize * UInt64(immediate)))  index: \(cccccc)", .debug)
                     set(address: address, vaule: symbolName)
                     bindCount += 1
                     address &+= (ptrSize &+ (ptrSize * UInt64(immediate)))
@@ -106,7 +106,7 @@ struct Dyld {
                 case BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB:
                     let count = binary.read_uleb128(index: &index, end: end)
                     let skip = binary.read_uleb128(index: &index, end: end)
-                    printf("BIND_OPCODE: DO_BIND_ULEB_TIMES_SKIPPING_ULEB, count: \(String(format: "%016llx", count)), skip: \(String(format: "%016llx", skip))  index: \(cccccc)")
+                    ConsoleIO.writeMessage("BIND_OPCODE: DO_BIND_ULEB_TIMES_SKIPPING_ULEB, count: \(String(format: "%016llx", count)), skip: \(String(format: "%016llx", skip))  index: \(cccccc)", .debug)
                     for _ in 0 ..< count {
                         set(address: address, vaule: symbolName)
                         address &+= (ptrSize &+ skip)

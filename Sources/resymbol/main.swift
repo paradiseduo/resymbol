@@ -1,7 +1,5 @@
 import Cocoa
 
-let DEBUG_FLAG = false
-
 var running = true
 
 Resymbol.main()

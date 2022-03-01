@@ -165,6 +165,6 @@ struct SwiftClass {
             }
         }
         result += "}\n"
-        print(result)
+        ConsoleIO.writeMessage(result)
     }
 }

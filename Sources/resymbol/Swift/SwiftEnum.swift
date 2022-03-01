@@ -39,6 +39,6 @@ struct SwiftEnum {
             }
         }
         result += "}\n"
-        print(result)
+        ConsoleIO.writeMessage(result)
     }
 }

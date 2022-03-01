@@ -20,10 +20,10 @@ struct Resymbol: ParsableCommand {
     @Flag(name: .shortAndLong, help: "If restore symbol ipa, please set this flag. Default false mean is machO file path.")
     var ipa = false
     
-    @Flag(name: .shortAndLong, help: "Dump Symbol Table.")
+    @Flag(name: .shortAndLong, help: "Dump Symbol Table. If used with -c maybe slowly.")
     var symbol = false
     
-    @Flag(name: .shortAndLong, help: "Dump Class.")
+    @Flag(name: .shortAndLong, help: "Dump Class. If used with -s maybe slowly.")
     var `class` = false
     
     mutating func run() throws {

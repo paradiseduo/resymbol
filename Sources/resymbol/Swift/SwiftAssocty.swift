@@ -49,6 +49,6 @@ struct SwiftAssocty {
             result += "    \(item.name.swiftName.value):\(fixMangledTypeName(item.substitutedTypeName.swiftName))\n"
         }
         result += "}\n"
-        print(result)
+        ConsoleIO.writeMessage(result)
     }
 }

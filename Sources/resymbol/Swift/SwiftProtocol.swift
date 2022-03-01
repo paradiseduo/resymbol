@@ -29,7 +29,7 @@ struct ProtocolDescriptor {
         if name.swiftName.value.count > 0 {
             var result = "protocol \(name.swiftName.value) {\n"
             result += "}\n"
-            print(result)
+            ConsoleIO.writeMessage(result)
         }
     }
 }
@@ -74,7 +74,7 @@ struct SwiftProtocol {
         if let protocolName = MachOData.shared.swiftProtocols[protocolNameOffset] {
             var result = "protocol \(protocolName) {\n"
             result += "}\n"
-            print(result)
+            ConsoleIO.writeMessage(result)
         }
     }
 }

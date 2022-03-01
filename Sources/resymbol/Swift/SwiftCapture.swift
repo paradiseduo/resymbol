@@ -70,7 +70,7 @@ struct SwiftCapture {
             result += "\t\(fixMangledTypeName(item.mangledTypeName.swiftName)): \(fixMangledTypeName(item.mangledMetadataSource.swiftName))\n"
         }
         result += "}\n"
-        print(result)
+        ConsoleIO.writeMessage(result)
     }
 }
 

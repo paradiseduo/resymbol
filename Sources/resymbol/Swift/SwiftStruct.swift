@@ -39,6 +39,6 @@ struct SwiftStruct {
             }
         }
         result += "}\n"
-        print(result)
+        ConsoleIO.writeMessage(result)
     }
 }

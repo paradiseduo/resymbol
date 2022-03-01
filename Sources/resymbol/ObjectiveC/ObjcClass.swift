@@ -70,7 +70,7 @@ struct ObjcClass {
             }
         }
         result += "@end\n"
-        print(result)
+        ConsoleIO.writeMessage(result)
     }
 }
 
