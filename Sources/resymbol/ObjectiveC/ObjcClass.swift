@@ -17,7 +17,7 @@ struct ObjcClass {
     let reserved1: DataStruct
     let reserved2: DataStruct
     let reserved3: DataStruct
-    let classRO: ObjcClassRO
+    let classRO: ObjcClassRO?
     var classMethods: Methods?
     let isSwiftClass: Bool
     
@@ -38,22 +38,26 @@ struct ObjcClass {
             offsetCD -= offsetCD%4
         }
         
-        let classRO = ObjcClassRO.OCRO(binary, offset: offsetCD, isSwiftClass: isSwiftClass)
+        var classRO: ObjcClassRO?
+        if offsetCD > 0 {
+            classRO = ObjcClassRO.OCRO(binary, offset: offsetCD, isSwiftClass: isSwiftClass)
+        }
                 
         return ObjcClass(isa: isa, superClass: superClass, cache: cache, cacheMask: cacheMask, cacheOccupied: cacheOccupied, classData: classData, reserved1: reserved1, reserved2: reserved2, reserved3: reserved3, classRO: classRO, classMethods: nil, isSwiftClass: isSwiftClass)
     }
     
     func serialization() {
+        guard let c = classRO else { return }
         let superClassName = fixSymbolName(MachOData.shared.dylbMap[superClass.address.ltrim("0")]) ?? ""
-        var result = "@interface \(classRO.name.className.value) \(superClassName.count > 0 ? ":\(superClassName)" : "") \(classRO.baseProtocol.serialization()) //0x\(isa.address)\n"
-        if let instanceVariables = classRO.ivars.instanceVariables {
+        var result = "@interface \(c.name.className.value) \(superClassName.count > 0 ? ":\(superClassName)" : "") \(c.baseProtocol.serialization()) //0x\(isa.address)\n"
+        if let instanceVariables = c.ivars.instanceVariables {
             result += "{\n"
             for item in instanceVariables {
                 result += "\(item.serialization()) //0x\(item.offset.address)\n"
             }
             result += "}\n"
         }
-        if let properties = classRO.baseProperties.properties {
+        if let properties = c.baseProperties.properties {
             for item in properties {
                 result += "\(item.serialization()) //0x\(item.name.name.address)\n"
             }
@@ -64,7 +68,7 @@ struct ObjcClass {
                 result += "\(item.serialization(isClass: true)) //0x\(item.implementation.value)\n"
             }
         }
-        if let methods = classRO.baseMethod.methods {
+        if let methods = c.baseMethod.methods {
             for item in methods {
                 result += "\(item.serialization(isClass: false)) //0x\(item.implementation.value)\n"
             }

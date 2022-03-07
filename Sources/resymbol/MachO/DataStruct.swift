@@ -7,6 +7,8 @@
 
 import Foundation
 
+let None = "00000000"
+
 struct DataStruct {
     let address: String
     #if DEBUG_FLAG
@@ -16,21 +18,21 @@ struct DataStruct {
     let value: String
     
     static func data(_ binary: Data, offset: Int, length: Int) -> DataStruct {
-        if offset > 0 {
+        if offset > 0 && offset < binary.count {
             let b = binary.subdata(in: Range<Data.Index>(NSRange(location: offset, length: length))!)
             #if DEBUG_FLAG
             return DataStruct(address: offset.string16(), data: b, dataString: b.rawValue(), value: b.rawValueBig())
             #endif
             return DataStruct(address: offset.string16(), value: b.rawValueBig())
         } else {
-            return DataStruct(address: offset.string16(), value: "00000000")
+            return DataStruct(address: offset.string16(), value: None)
         }
     }
 
     static func textData(_ binary: Data, offset: Int, demangle: Bool = false) -> DataStruct {
         // 如果上来就是空的，说明没有这个东西
-        if binary[offset] == 0 {
-            return DataStruct(address: offset.string16(), value: "00000000")
+        if offset < 0 || offset > binary.count || binary[offset] == 0 {
+            return DataStruct(address: offset.string16(), value: None)
         }
         var start = offset
         var strData = Data()
@@ -62,8 +64,8 @@ struct DataStruct {
     
     static func textSwiftData(_ binary: Data, offset: Int, isMangledName: Bool, isClassName: Bool) -> DataStruct {
         // 如果上来就是空的，说明没有这个东西
-        if binary[offset] == 0 {
-            return DataStruct(address: offset.string16(), value: "00000000")
+        if offset < 0 || offset > binary.count || binary[offset] == 0 {
+            return DataStruct(address: offset.string16(), value: None)
         }
         var start = offset
         var strData = Data()

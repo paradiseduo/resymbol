@@ -274,8 +274,10 @@ extension Section {
                     
                     let isa = DataStruct.data(binary, offset: offsetS, length: 8)
                     let metaClassOffset = isa.value.int16Replace().alignment()
-                    oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO.baseMethod
-                    MachOData.shared.objcClasses[oc.isa.address.int16()] = oc.classRO.name.className.value
+                    oc.classMethods = ObjcClass.OC(binary, offset: metaClassOffset).classRO?.baseMethod
+                    if let c = oc.classRO {
+                        MachOData.shared.objcClasses[oc.isa.address.int16()] = c.name.className.value
+                    }
                     oc.serialization()
                 }
                 symbolGroup.leave()

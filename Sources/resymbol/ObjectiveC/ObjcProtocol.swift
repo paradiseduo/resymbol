@@ -44,6 +44,7 @@ struct ObjcProtocol {
     }
     
     func serialization() {
+        guard name.className.value.count > 0 && name.className.value != None else { return }
         var result = "@protocol \(name.className.value) //0x\(isa.address) \n"
         
         if let properties = instanceProperties.properties {

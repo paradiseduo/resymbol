@@ -75,7 +75,7 @@ func primitiveType(_ type: String) -> String {
     if type.count == 0 {
         return "MISSING_TYPE"
     }
-    if type == "00000000" {
+    if type == None {
         return "Swift.Type"
     }
     var result = ""

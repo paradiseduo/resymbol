@@ -39,6 +39,9 @@ struct ObjcCategory {
             externalClassName = fixSymbolName(MachOData.shared.symbolTable[key]?.name()) ?? ""
         }
         
+        if externalClassName == "" && name.className.value == "" {
+            return
+        }
         var result = "@interface \(externalClassName)(\(name.className.value)) \(protocols.serialization()) //0x\(name.name.address) \n"
         if let properties = instanceProperties.properties {
             for item in properties {

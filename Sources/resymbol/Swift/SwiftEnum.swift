@@ -31,7 +31,7 @@ struct SwiftEnum {
                     result += "    case \(item.fieldName.swiftName.value)\n"
                 }
             } else {
-                if item.mangledTypeName.swiftName.value != "00000000" {
+                if item.mangledTypeName.swiftName.value != None {
                     result += "    case \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
                 } else {
                     result += "    case \(item.fieldName.swiftName.value)\n"

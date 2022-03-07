@@ -77,7 +77,7 @@ struct SwiftClass {
             newOffset += header + paramCount + Int(pandding) + 3 * 4 * requirementCount
         }
         
-        var resilientSuperclass = DataStruct(address: address, value: "00000000")
+        var resilientSuperclass = DataStruct(address: address, value: None)
         if type.flags.typeContextDescriptorFlags.contains(where: { t in
             return t == .Class_HasResilientSuperclass
         }) {
@@ -85,7 +85,7 @@ struct SwiftClass {
             newOffset += 4
         }
         
-        var metadataInitialization = DataStruct(address: address, value: "00000000")
+        var metadataInitialization = DataStruct(address: address, value: None)
         if type.flags.typeContextDescriptorFlags.contains(where: { t in
             return t == .MetadataInitialization
         }) {
@@ -93,8 +93,8 @@ struct SwiftClass {
             newOffset += 12
         }
         
-        var vtableOffset = DataStruct(address: address, value: "00000000")
-        var vtableSize = DataStruct(address: address, value: "00000000")
+        var vtableOffset = DataStruct(address: address, value: None)
+        var vtableSize = DataStruct(address: address, value: None)
         var methods = [SwiftMethod]()
         if type.flags.typeContextDescriptorFlags.contains(where: { t in
             return t == .Class_HasVTable
@@ -108,7 +108,7 @@ struct SwiftClass {
             }
         }
         
-        var overrideMethodNum = DataStruct(address: address, value: "00000000")
+        var overrideMethodNum = DataStruct(address: address, value: None)
         var overrideTableList = [SwiftOverrideMethod]()
         if type.flags.typeContextDescriptorFlags.contains(where: { t in
             return t == .Class_HasOverrideTable
@@ -125,7 +125,7 @@ struct SwiftClass {
     
     func serialization() {
         var result = "\(type.flags.kind.description) \(type.name.swiftName.value)"
-        if superclassType.superclassType.value != "00000000" {
+        if superclassType.superclassType.value != None {
             if superclassType.superclassType.value.starts(with: "0x") {
                 result += ": \(fixMangledTypeName(superclassType.superclassType)) {\n"
             } else {
@@ -144,7 +144,7 @@ struct SwiftClass {
                     result += "    \(front) \(item.fieldName.swiftName.value)\n"
                 }
             } else {
-                if item.mangledTypeName.swiftName.value != "00000000" {
+                if item.mangledTypeName.swiftName.value != None {
                     result += "    \(front) \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
                 } else {
                     result += "    \(front) \(item.fieldName.swiftName.value)\n"
@@ -155,7 +155,7 @@ struct SwiftClass {
             result += "\n"
             for item in methods {
                 let addr = item.impl.implOffset.address
-                if item.impl.implOffset.value != "00000000" {
+                if item.impl.implOffset.value != None {
                     if let nlist = MachOData.shared.symbolTable["00000001\(addr)"], let s = nlist.name(demangle: true) {
                         result += "    func \(s)(){}\n"
                     } else {
