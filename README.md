@@ -1,5 +1,5 @@
 # resymbol
-A reverse engineering tool to restore stripped symbol table and dump Objective-C class or Swift types for iOS app.
+A reverse engineering tool to restore stripped symbol table and dump Objective-C class or Swift types for machO file.
 
 
 ## class-dump
