@@ -80,3 +80,8 @@ https://github.com/neil-wu/SwiftDump
 https://github.com/nygard/class-dump
 
 https://juejin.cn/post/6919034854159941645
+
+
+## Stargazers over time
+
+[![Stargazers over time](https://starchart.cc/paradiseduo/resymbol.svg)](https://starchart.cc/paradiseduo/resymbol)
