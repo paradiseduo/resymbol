@@ -125,6 +125,11 @@ struct Section {
 //                }
 //                let indirectSymbolTable = binary.subdata(in: Range<Data.Index>(NSRange(location: Int(dysymtab.indirectsymoff), length: Int(dysymtab.nindirectsyms*4)))!)
 //                ConsoleIO.writeMessage(indirectSymbolTable, .debug)
+            } else if loadCommand.cmd == LC_DYLD_EXPORTS_TRIE {
+//                let ss = binary.extract(linkedit_data_command.self, offset: offset_machO)
+                
+            } else if loadCommand.cmd == LC_DYLD_CHAINED_FIXUPS {
+                
             }
             offset_machO += Int(loadCommand.cmdsize)
         }
@@ -294,7 +299,9 @@ extension Section {
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 let offsetS = sub.rawValueBig().int16Replace().alignment()
-                ObjcCategory.OCCG(binary, offset: offsetS).serialization()
+                if offsetS > 0 {
+                    ObjcCategory.OCCG(binary, offset: offsetS).serialization()
+                }
                 categoryGroup.leave()
             }
         }
@@ -309,9 +316,11 @@ extension Section {
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: i<<3, length: 8))!)
                 
                 let offsetS = sub.rawValueBig().int16Replace().alignment()
-                let pr = ObjcProtocol.OCPT(binary, offset: offsetS)
-                MachOData.shared.objcProtocols[pr.isa.address.int16()] = pr.name.className.value
-                pr.serialization()
+                if offsetS > 0 {
+                    let pr = ObjcProtocol.OCPT(binary, offset: offsetS)
+                    MachOData.shared.objcProtocols[pr.isa.address.int16()] = pr.name.className.value
+                    pr.serialization()
+                }
                 dyldGroup.leave()
             }
         }
@@ -329,9 +338,11 @@ extension Section {
                 let location = i<<2
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
                 let offsetS = (Int(section.offset) + location + sub.rawValueBig().int16Subtraction()).alignment()
-                let p = ProtocolDescriptor.PD(binary, offset: offsetS)
-                p.serialization()
-                MachOData.shared.swiftProtocols[offsetS] = p.name.swiftName.value
+                if offsetS > 0 {
+                    let p = ProtocolDescriptor.PD(binary, offset: offsetS)
+                    p.serialization()
+                    MachOData.shared.swiftProtocols[offsetS] = p.name.swiftName.value
+                }
                 dyldGroup.leave()
             }
         }
@@ -346,25 +357,27 @@ extension Section {
                 let location = i<<2
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
                 let offsetS = (Int(section.offset) + location + sub.rawValueBig().int16Subtraction()).alignment()
-                let p = SwiftProtocol.SP(binary, offset: offsetS)
-                var nominalName = ""
-                switch p.nominalTypeDescriptor.nominalTypeDescriptor.value.int16Subtraction() & 0x3 {
-                case 0:
-                    nominalName = MachOData.shared.nominalOffsetMap[p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()] ?? ""
-                    if nominalName.isEmpty {
-                        MachOData.shared.nominalOffsetMap[p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()] = p.nominalTypeDescriptor.nominalTypeName.value
+                if offsetS > 0 {
+                    let p = SwiftProtocol.SP(binary, offset: offsetS)
+                    var nominalName = ""
+                    switch p.nominalTypeDescriptor.nominalTypeDescriptor.value.int16Subtraction() & 0x3 {
+                    case 0:
+                        nominalName = MachOData.shared.nominalOffsetMap[p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()] ?? ""
+                        if nominalName.isEmpty {
+                            MachOData.shared.nominalOffsetMap[p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()] = p.nominalTypeDescriptor.nominalTypeName.value
+                        }
+                        break
+                    case 1:
+                        nominalName = p.nominalTypeDescriptor.nominalTypeName.value
+                        break
+                    case 2:
+                        nominalName = p.nominalTypeDescriptor.nominalTypeName.value
+                        break
+                    case 3:
+                        break
+                    default:
+                        break
                     }
-                    break
-                case 1:
-                    nominalName = p.nominalTypeDescriptor.nominalTypeName.value
-                    break
-                case 2:
-                    nominalName = p.nominalTypeDescriptor.nominalTypeName.value
-                    break
-                case 3:
-                    break
-                default:
-                    break
                 }
                 symbolGroup.leave()
             }
@@ -380,28 +393,30 @@ extension Section {
                 let location = i<<2
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
                 let offsetS = (Int(section.offset) + location + sub.rawValueBig().int16Subtraction()).alignment()
-                let flags = SwiftFlags.SF(binary, offset: offsetS)
-                switch flags.kind {
-                case .Class:
-                    let c = SwiftClass.SC(binary, offset: offsetS+4, flags: flags)
-                    MachOData.shared.swiftClasses.append(c)
-                    MachOData.shared.nominalOffsetMap[offsetS] = c.type.name.swiftName.value
-                    MachOData.shared.mangledNameMap[c.type.fieldDescriptor.mangledTypeName.swiftName.value] = c.type.name.swiftName.value
-                    break
-                case .Enum:
-                    let e = SwiftEnum.SE(binary, offset: offsetS+4, flags: flags)
-                    MachOData.shared.swiftEnum.append(e)
-                    MachOData.shared.nominalOffsetMap[offsetS] = e.type.name.swiftName.value
-                    MachOData.shared.mangledNameMap[e.type.fieldDescriptor.mangledTypeName.swiftName.value] = e.type.name.swiftName.value
-                    break
-                case .Struct:
-                    let s = SwiftStruct.SS(binary, offset: offsetS+4, flags: flags)
-                    MachOData.shared.swiftStruct.append(s)
-                    MachOData.shared.nominalOffsetMap[offsetS] = s.type.name.swiftName.value
-                    MachOData.shared.mangledNameMap[s.type.fieldDescriptor.mangledTypeName.swiftName.value] = s.type.name.swiftName.value
-                    break
-                default:
-                    break
+                if offsetS > 0 {
+                    let flags = SwiftFlags.SF(binary, offset: offsetS)
+                    switch flags.kind {
+                    case .Class:
+                        let c = SwiftClass.SC(binary, offset: offsetS+4, flags: flags)
+                        MachOData.shared.swiftClasses.append(c)
+                        MachOData.shared.nominalOffsetMap[offsetS] = c.type.name.swiftName.value
+                        MachOData.shared.mangledNameMap[c.type.fieldDescriptor.mangledTypeName.swiftName.value] = c.type.name.swiftName.value
+                        break
+                    case .Enum:
+                        let e = SwiftEnum.SE(binary, offset: offsetS+4, flags: flags)
+                        MachOData.shared.swiftEnum.append(e)
+                        MachOData.shared.nominalOffsetMap[offsetS] = e.type.name.swiftName.value
+                        MachOData.shared.mangledNameMap[e.type.fieldDescriptor.mangledTypeName.swiftName.value] = e.type.name.swiftName.value
+                        break
+                    case .Struct:
+                        let s = SwiftStruct.SS(binary, offset: offsetS+4, flags: flags)
+                        MachOData.shared.swiftStruct.append(s)
+                        MachOData.shared.nominalOffsetMap[offsetS] = s.type.name.swiftName.value
+                        MachOData.shared.mangledNameMap[s.type.fieldDescriptor.mangledTypeName.swiftName.value] = s.type.name.swiftName.value
+                        break
+                    default:
+                        break
+                    }
                 }
                 categoryGroup.leave()
             }
