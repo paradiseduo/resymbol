@@ -13,7 +13,8 @@ struct InstanceVariableName {
     
     static func instanceVariableName(_ binary: Data, offset: Int) -> InstanceVariableName {
         let name = DataStruct.data(binary, offset: offset, length: 8)
-        let instanceVariableName = DataStruct.textData(binary, offset: name.value.int16Replace())
+        let nameOffset = MachOData.shared.resolvePointer(name.value) ?? name.value.int16Replace()
+        let instanceVariableName = DataStruct.textData(binary, offset: nameOffset)
         return InstanceVariableName(name: name, instanceVariableName: instanceVariableName)
     }
 }
@@ -24,7 +25,8 @@ struct InstanceVariableTypes {
     
     static func instanceVariableTypes(_ binary: Data, offset: Int) -> InstanceVariableTypes {
         let types = DataStruct.data(binary, offset: offset, length: 8)
-        let instanceVariableTypes = DataStruct.textData(binary, offset: types.value.int16Replace())
+        let typeOffset = MachOData.shared.resolvePointer(types.value) ?? types.value.int16Replace()
+        let instanceVariableTypes = DataStruct.textData(binary, offset: typeOffset)
         return InstanceVariableTypes(types: types, instanceVariableTypes: instanceVariableTypes)
     }
 }

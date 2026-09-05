@@ -13,7 +13,8 @@ struct MethodName {
     
     static func methodName(_ binary: Data, offset: Int) -> MethodName {
         let name = DataStruct.data(binary, offset: offset, length: 8)
-        let methodName = DataStruct.textData(binary, offset: name.value.int16Replace())
+        let methodNameOffset = MachOData.shared.resolvePointer(name.value) ?? name.value.int16Replace()
+        let methodName = DataStruct.textData(binary, offset: methodNameOffset)
         return MethodName(name: name, methodName: methodName)
     }
 }
@@ -28,7 +29,8 @@ struct MethodTypes {
         if hasExtendedMethodTypes {
             methodTypes = DataStruct.textData(binary, offset: typeOffSet)
         } else {
-            methodTypes = DataStruct.textData(binary, offset: types.value.int16Replace())
+            let typeOffset = MachOData.shared.resolvePointer(types.value) ?? types.value.int16Replace()
+            methodTypes = DataStruct.textData(binary, offset: typeOffset)
         }
         return MethodTypes(types: types, methodTypes: methodTypes)
     }
@@ -55,6 +57,40 @@ struct Method {
             let implementation = DataStruct.data(binary, offset: offSet, length: 8)
             offSet += 8
             result.append(Method(name: name, types: types, implementation: implementation))
+        }
+        return result
+    }
+
+    static func relativeMethods(_ binary: Data, startOffset: Int, count: Int,
+                                directSelectors: Bool, hasExtendedMethodTypes: Bool,
+                                typeOffSet: inout Int) -> [Method] {
+        var result = [Method]()
+        result.reserveCapacity(count)
+        var offset = startOffset
+        for _ in 0..<count {
+            guard offset >= 0, offset <= binary.count - 12 else { break }
+            let nameRelative = DataStruct.data(binary, offset: offset, length: 4)
+            let nameReference = offset + nameRelative.value.int16Subtraction()
+            let nameOffset: Int
+            if directSelectors {
+                nameOffset = nameReference
+            } else {
+                nameOffset = DataStruct.data(binary, offset: nameReference, length: 8).value.int16Replace()
+            }
+            let methodName = MethodName(name: nameRelative,
+                                        methodName: DataStruct.textData(binary, offset: nameOffset))
+
+            let typesRelative = DataStruct.data(binary, offset: offset + 4, length: 4)
+            var typesOffset = offset + 4 + typesRelative.value.int16Subtraction()
+            if hasExtendedMethodTypes {
+                typesOffset = DataStruct.data(binary, offset: typeOffSet, length: 8).value.int16Replace()
+                typeOffSet += 8
+            }
+            let methodTypes = MethodTypes(types: typesRelative,
+                                          methodTypes: DataStruct.textData(binary, offset: typesOffset))
+            let implementation = DataStruct.data(binary, offset: offset + 8, length: 4)
+            result.append(Method(name: methodName, types: methodTypes, implementation: implementation))
+            offset += 12
         }
         return result
     }
@@ -146,7 +182,24 @@ struct Methods {
         if offSetMD > 0 {
             let elementSize = DataStruct.data(binary, offset: offSetMD, length: 4)
             let elementCount = DataStruct.data(binary, offset: offSetMD+4, length: 4)
-            let methods = Method.methods(binary, startOffset: offSetMD+8, count: elementCount.value.int16(), hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: &typeOffSet)
+            let header = UInt32(elementSize.value.int16())
+            let isRelative = header & 0x8000_0000 != 0
+            let directSelectors = header & 0x4000_0000 != 0
+            let entrySize = isRelative ? 12 : 24
+            let declaredCount = elementCount.value.int16()
+            let availableCount = offSetMD + 8 <= binary.count ? (binary.count - offSetMD - 8) / entrySize : 0
+            let count = min(declaredCount, availableCount)
+            let methods: [Method]
+            if isRelative {
+                methods = Method.relativeMethods(binary, startOffset: offSetMD+8, count: count,
+                                                directSelectors: directSelectors,
+                                                hasExtendedMethodTypes: hasExtendedMethodTypes,
+                                                typeOffSet: &typeOffSet)
+            } else {
+                methods = Method.methods(binary, startOffset: offSetMD+8, count: count,
+                                         hasExtendedMethodTypes: hasExtendedMethodTypes,
+                                         typeOffSet: &typeOffSet)
+            }
             return Methods(baseMethod: baseMethod, elementSize: elementSize, elementCount: elementCount, methods: methods)
         } else {
             return Methods(baseMethod: baseMethod, elementSize: nil, elementCount: nil, methods: nil)

@@ -13,7 +13,8 @@ struct ClassName {
     
     static func className(_ binary: Data, startOffset: Int, isSwiftClass: Bool) -> ClassName {
         let name = DataStruct.data(binary, offset: startOffset, length: 8)
-        let className = DataStruct.textData(binary, offset: name.value.int16Replace(), demangle: isSwiftClass)
+        let classNameOffset = MachOData.shared.resolvePointer(name.value) ?? name.value.int16Replace()
+        let className = DataStruct.textData(binary, offset: classNameOffset, demangle: isSwiftClass)
         return ClassName(name: name, className: className)
     }
 }

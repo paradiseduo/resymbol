@@ -18,7 +18,7 @@ struct DataStruct {
     let value: String
     
     static func data(_ binary: Data, offset: Int, length: Int) -> DataStruct {
-        if offset > 0 && offset < binary.count {
+        if offset >= 0, length >= 0, offset <= binary.count, length <= binary.count - offset {
             let b = binary.subdata(in: Range<Data.Index>(NSRange(location: offset, length: length))!)
             #if DEBUG_FLAG
             return DataStruct(address: offset.string16(), data: b, dataString: b.rawValue(), value: b.rawValueBig())
@@ -31,12 +31,13 @@ struct DataStruct {
 
     static func textData(_ binary: Data, offset: Int, demangle: Bool = false) -> DataStruct {
         // 如果上来就是空的，说明没有这个东西
-        if offset < 0 || offset > binary.count || binary[offset] == 0 {
+        if offset < 0 || offset >= binary.count || binary[offset] == 0 {
             return DataStruct(address: offset.string16(), value: None)
         }
         var start = offset
         var strData = Data()
-        while true {
+        var scanned = 0
+        while start < binary.count, scanned < 256 {
             let item = binary[start]
             if item != 0 {
                 strData.append(item)
@@ -59,17 +60,20 @@ struct DataStruct {
                 }
             }
             start += 1
+            scanned += 1
         }
+        return DataStruct(address: offset.string16(), value: None)
     }
     
     static func textSwiftData(_ binary: Data, offset: Int, isMangledName: Bool, isClassName: Bool) -> DataStruct {
         // 如果上来就是空的，说明没有这个东西
-        if offset < 0 || offset > binary.count || binary[offset] == 0 {
+        if offset < 0 || offset >= binary.count || binary[offset] == 0 {
             return DataStruct(address: offset.string16(), value: None)
         }
         var start = offset
         var strData = Data()
-        while true {
+        var scanned = 0
+        while start < binary.count, scanned < 256 {
             let item = binary[start]
 //            let itemNext = binary[start+1]
 //            if isMangledName && strData.first == 0x2 {
@@ -83,9 +87,11 @@ struct DataStruct {
 //            }
             strData.append(item)
             start += 1
+            scanned += 1
         }
+        return DataStruct(address: offset.string16(), value: None)
     }
-    
+
     private static func read(strData: Data, offset: Int, isMangledName: Bool, isClassName: Bool) -> DataStruct {
         var strValue = ""
         let address = offset.string16()
@@ -108,9 +114,9 @@ struct DataStruct {
                 return DataStruct(address: address, value: s)
             } else {
                 #if DEBUG_FLAG
-                return DataStruct(address: address, data: strData, dataString: strData.rawValue(), value: getTypeFromMangledName(strValue))
+                return DataStruct(address: address, data: strData, dataString: strData.rawValue(), value: result)
                 #endif
-                return DataStruct(address: address, value: getTypeFromMangledName(strValue))
+                return DataStruct(address: address, value: result)
             }
         }
     }

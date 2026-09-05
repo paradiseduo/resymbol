@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import MachO
 
 struct CaptureTypeRecord {
     let mangledTypeName: SwiftName
@@ -31,13 +32,17 @@ struct MetadataSourceRecord {
 }
 
 struct SwiftCapture {
+    let descriptorAddress: UInt64
+    let symbolName: String?
     let numCaptureTypes: DataStruct
     let numMetadataSources: DataStruct
     let numBindings: DataStruct
     let captureTypeRecords: [CaptureTypeRecord]
     let metadataSourceRecords: [MetadataSourceRecord]
     
-    static func SC(_ binary: Data, offset: inout Int) -> SwiftCapture {
+    static func SC(_ binary: Data, offset: inout Int, section: section_64) -> SwiftCapture {
+        let descriptorOffset = offset
+        let descriptorAddress = section.addr + UInt64(descriptorOffset - Int(section.offset))
         let numCaptureTypes = DataStruct.data(binary, offset: offset, length: 4)
         offset += 4
         let numMetadataSources = DataStruct.data(binary, offset: offset, length: 4)
@@ -55,12 +60,31 @@ struct SwiftCapture {
             metadataSourceRecords.append(MetadataSourceRecord.MSR(binary, offset: &offset))
         }
         
-        return SwiftCapture(numCaptureTypes: numCaptureTypes, numMetadataSources: numMetadataSources, numBindings: numBindings, captureTypeRecords: captureTypeRecords, metadataSourceRecords: metadataSourceRecords)
+        return SwiftCapture(descriptorAddress: descriptorAddress,
+                            symbolName: resolveSymbol(at: descriptorAddress),
+                            numCaptureTypes: numCaptureTypes,
+                            numMetadataSources: numMetadataSources,
+                            numBindings: numBindings,
+                            captureTypeRecords: captureTypeRecords,
+                            metadataSourceRecords: metadataSourceRecords)
+    }
+
+    private static func resolveSymbol(at address: UInt64) -> String? {
+        let absoluteKey = String(format: "%016llx", address)
+        if let name = MachOData.shared.symbolTable[absoluteKey]?.name(demangle: true), !name.isEmpty {
+            return name
+        }
+        let relativeAddress = address > RVA ? address - RVA : address
+        if let name = MachOData.shared.dylbMap[String(relativeAddress, radix: 16)], !name.isEmpty {
+            return swift_demangle(name) ?? name
+        }
+        return nil
     }
     
     
     func serialization() {
-        var result = "block \(numCaptureTypes.address) {\n"
+        let label = symbolName ?? String(format: "0x%016llx", descriptorAddress)
+        var result = "block \(label) {\n"
         result += "\t// captureTypeRecords\n"
         for item in captureTypeRecords {
             result += "\t\(fixMangledTypeName(item.mangledTypeName.swiftName))\n"
@@ -73,4 +97,3 @@ struct SwiftCapture {
         ConsoleIO.writeMessage(result)
     }
 }
-

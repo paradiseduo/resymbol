@@ -13,7 +13,9 @@ struct SwiftParent {
     
     static func SP(_ binary: Data, offset: Int) -> SwiftParent {
         let parent = DataStruct.data(binary, offset: offset, length: 4)
-        let swiftParent = DataStruct.textSwiftData(binary, offset: offset+parent.value.int16Subtraction(), isMangledName: false, isClassName: true)
+        let parentOffset = MachOData.shared.resolveRelativePointer(base: offset, raw: parent.value)
+            ?? (offset + parent.value.int16Subtraction())
+        let swiftParent = DataStruct.textSwiftData(binary, offset: parentOffset, isMangledName: false, isClassName: true)
         return SwiftParent(parent: parent, swiftParent: swiftParent)
     }
 }

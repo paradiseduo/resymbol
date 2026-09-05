@@ -98,19 +98,19 @@ public extension SyncArray {
 public extension SyncArray {
  
     func append( _ element: Element) {
-        queue.async(flags: .barrier) {
+        queue.sync(flags: .barrier) {
             self.array.append(element)
         }
     }
  
     func append( _ elements: [Element]) {
-        queue.async(flags: .barrier) {
+        queue.sync(flags: .barrier) {
             self.array += elements
         }
     }
  
     func insert( _ element: Element, at index: Int) {
-        queue.async(flags: .barrier) {
+        queue.sync(flags: .barrier) {
             self.array.insert(element, at: index)
         }
     }
@@ -146,6 +146,10 @@ public extension SyncArray {
             }
         }
     }
+
+    func removeAllSync() {
+        queue.sync(flags: .barrier) { array.removeAll() }
+    }
 }
  
 public extension SyncArray {
@@ -162,8 +166,8 @@ public extension SyncArray {
         }
         set {
             guard let newValue = newValue else { return }
-            
-            queue.async(flags: .barrier) {
+            queue.sync(flags: .barrier) {
+                guard self.array.indices.contains(index) else { return }
                 self.array[index] = newValue
             }
         }

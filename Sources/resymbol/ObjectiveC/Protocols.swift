@@ -44,7 +44,8 @@ struct Protocols {
         if let pros = protocols {
             protocolString += "<"
             for item in pros {
-                if let p = MachOData.shared.objcProtocols[item.pointer.value.int16Replace()] {
+                let pointerOffset = MachOData.shared.resolvePointer(item.pointer.value) ?? item.pointer.value.int16Replace()
+                if let p = MachOData.shared.objcProtocols[pointerOffset] {
                     protocolString += p + ", "
                 }
             }

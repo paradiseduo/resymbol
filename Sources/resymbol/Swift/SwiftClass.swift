@@ -13,7 +13,9 @@ struct SwiftSuperClass {
     
     static func SSC(_ binary: Data, offset: Int) -> SwiftSuperClass {
         let superclass = DataStruct.data(binary, offset: offset, length: 4)
-        let superclassType = DataStruct.textSwiftData(binary, offset: offset+superclass.value.int16Subtraction(), isMangledName: false, isClassName: true)
+        let superclassOffset = MachOData.shared.resolveRelativePointer(base: offset, raw: superclass.value)
+            ?? (offset + superclass.value.int16Subtraction())
+        let superclassType = DataStruct.textSwiftData(binary, offset: superclassOffset, isMangledName: false, isClassName: true)
         return SwiftSuperClass(superclass: superclass, superclassType: superclassType)
     }
 }
@@ -62,7 +64,12 @@ struct SwiftClass {
         let metadataPositiveSizeInWords = DataStruct.data(binary, offset: offset+24, length: 4)
         let numImmediateMembers = DataStruct.data(binary, offset: offset+28, length: 4)
         let numFields = DataStruct.data(binary, offset: offset+32, length: 4)
-        let fieldOffsetVectorOffset = DataStruct.data(binary, offset: offset+32, length: 4)
+        // Class context descriptors store `numFields` followed by the
+        // relative offset of the field-offset vector. These are distinct
+        // 32-bit fields; reading both at +32 made every class report its
+        // field count as the vector offset and shifted subsequent metadata
+        // interpretation.
+        let fieldOffsetVectorOffset = DataStruct.data(binary, offset: offset+36, length: 4)
         
         let address = offset.string16()
         var genericSign: GenericSign?
@@ -129,25 +136,34 @@ struct SwiftClass {
             if superclassType.superclassType.value.starts(with: "0x") {
                 result += ": \(fixMangledTypeName(superclassType.superclassType)) {\n"
             } else {
-                result += ": \(superclassType.superclassType.value) {\n"
+                // The superclass name is already a Swift-mangled string (e.g.
+                // "So6UIViewC"). Demangle it so the output reads ": UIView"
+                // instead of the raw mangled form.
+                let demangled = getTypeFromMangledName(superclassType.superclassType.value)
+                result += ": \(demangled) {\n"
             }
         } else {
             result += " {\n"
         }
         for item in type.fieldDescriptor.fieldRecords {
-            let front = item.flags.isVar ? "var" : "let"
+            let property = SwiftStoredProperty.from(item)
+            let front = property.declaration
+            let fieldName = property.name
+            let declaration = property.declaration
+            let accessorType = MachOData.shared.accessorTypes[fieldName]
             if item.mangledTypeName.swiftName.value.starts(with: "0x") {
                 let fix = fixMangledTypeName(item.mangledTypeName.swiftName)
                 if fix.count > 0 {
-                    result += "    \(front) \(item.fieldName.swiftName.value): \(fix)\n"
+                    if !fix.hasPrefix("0x") { result += "    \(declaration) \(fieldName): \(accessorType ?? fix)\n" }
                 } else {
-                    result += "    \(front) \(item.fieldName.swiftName.value)\n"
+                    result += "    \(front) \(fieldName)\n"
                 }
             } else {
                 if item.mangledTypeName.swiftName.value != None {
-                    result += "    \(front) \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
+                    let rawType = accessorType ?? item.mangledTypeName.swiftName.value
+                    result += "    \(declaration) \(fieldName): \(accessorType ?? SwiftTypeReferenceParser.parse(rawType).description)\n"
                 } else {
-                    result += "    \(front) \(item.fieldName.swiftName.value)\n"
+                    result += "    \(front) \(fieldName)\n"
                 }
             }
         }

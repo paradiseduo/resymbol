@@ -22,17 +22,21 @@ struct SwiftStruct {
     func serialization() {
         var result = "\(type.flags.kind.description) \(type.name.swiftName.value) {\n"
         for item in type.fieldDescriptor.fieldRecords {
-            let front = item.flags.isVar ? "var" : "let"
+            let property = SwiftStoredProperty.from(item)
+            let front = property.declaration
+            let fieldName = property.name
+            let accessorType = MachOData.shared.accessorTypes[fieldName]
             if item.mangledTypeName.swiftName.value.starts(with: "0x") {
                 let fix = fixMangledTypeName(item.mangledTypeName.swiftName)
                 if fix.count > 0 {
-                    result += "    \(front) \(item.fieldName.swiftName.value): \(fix)\n"
+                    result += "    \(front) \(fieldName): \(accessorType ?? fix)\n"
                 } else {
                     result += "    \(front) \(item.fieldName.swiftName.value)\n"
                 }
             } else {
                 if item.mangledTypeName.swiftName.value != None {
-                    result += "    \(front) \(item.fieldName.swiftName.value): \(item.mangledTypeName.swiftName.value)\n"
+                    let rawType = accessorType ?? item.mangledTypeName.swiftName.value
+                    result += "    \(front) \(fieldName): \(accessorType ?? SwiftTypeReferenceParser.parse(rawType).description)\n"
                 } else {
                     result += "    \(front) \(item.fieldName.swiftName.value)\n"
                 }

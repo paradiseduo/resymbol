@@ -24,6 +24,10 @@ struct Dyld {
             var index = start
             var address = vmAddress[0]
             var cccccc = 0
+            guard start >= 0, end <= binary.count, start < end, !vmAddress.isEmpty else {
+                dyldGroup.leave()
+                return
+            }
             while index < end && !done {
                 let item = Int32(binary[index])
                 let immediate = item & BIND_IMMEDIATE_MASK
@@ -55,11 +59,11 @@ struct Dyld {
                     break
                 case BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM:
                     var strData = Data()
-                    while binary[index] != 0 {
+                    while index < end && binary[index] != 0 {
                         strData.append(contentsOf: [binary[index]])
                         index += 1
                     }
-                    index += 1
+                    if index < end { index += 1 }
                     symbolName = String(data: strData, encoding: String.Encoding.utf8) ?? ""
                     symbolFlags = immediate
                     ConsoleIO.writeMessage("BIND_OPCODE: SET_SYMBOL_TRAILING_FLAGS_IMM,  flags: \(String(format: "%02x", symbolFlags)), str = \(symbolName)  index: \(cccccc)", .debug)

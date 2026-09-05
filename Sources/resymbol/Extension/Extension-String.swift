@@ -48,7 +48,8 @@ extension String {
     }
     
     func int16Replace() -> Int {
-        return Int((UInt64(self, radix: 16) ?? 0) & ~RVA)
+        let value = (UInt64(self, radix: 16) ?? 0) & ~RVA
+        return Int(truncatingIfNeeded: value)
     }
     
     func int16() -> Int {
@@ -59,14 +60,8 @@ extension String {
     }
     
     func int16Subtraction() -> Int {
-        if let i = Int(self, radix: 16) {
-            if starts(with: "0") {
-                return i
-            } else {
-                return i | ~0xFFFFFFFF
-            }
-        }
-        return 0
+        guard let raw = UInt32(self, radix: 16) else { return 0 }
+        return Int(Int32(bitPattern: raw))
     }
     
     func int16RVA() -> Int {

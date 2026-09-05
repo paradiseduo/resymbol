@@ -38,8 +38,8 @@ class SyncDictionary<V: Hashable, T>: Collection {
     // swiftlint:enable identifier_name
     subscript(key: V) -> T? {
         set(newValue) {
-            queue.async(flags: .barrier) {[weak self] in
-                self?.dictionary[key] = newValue
+            queue.sync(flags: .barrier) {
+                dictionary[key] = newValue
             }
         }
         get {
@@ -57,19 +57,27 @@ class SyncDictionary<V: Hashable, T>: Collection {
     }
     
     func removeValue(forKey key: V) {
-        queue.async(flags: .barrier) {[weak self] in
-            self?.dictionary.removeValue(forKey: key)
+        _ = queue.sync(flags: .barrier) {
+            dictionary.removeValue(forKey: key)
         }
     }
 
     func removeAll() {
-        queue.async(flags: .barrier) {[weak self] in
-            self?.dictionary.removeAll()
+        queue.sync(flags: .barrier) {
+            dictionary.removeAll()
         }
+    }
+
+    func removeAllSync() {
+        queue.sync(flags: .barrier) { dictionary.removeAll() }
     }
     
     func description() {
         ConsoleIO.writeMessage(dictionary, .debug)
+    }
+
+    func valuesSnapshot() -> [T] {
+        queue.sync { Array(dictionary.values) }
     }
 
 }

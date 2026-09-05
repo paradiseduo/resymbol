@@ -10,6 +10,9 @@ import Foundation
 
 import Darwin
 
+private let demangleCacheLock = NSLock()
+private var demangleCache = [String: String]()
+
 @_silgen_name("swift_demangle")
 public func _stdlib_demangleImpl(
     mangledName: UnsafePointer<CChar>?,
@@ -20,7 +23,14 @@ public func _stdlib_demangleImpl(
 ) -> UnsafeMutablePointer<CChar>?
 
 internal func _stdlib_demangleName(_ mangledName: String) -> String {
-    return mangledName.utf8CString.withUnsafeBufferPointer {
+    demangleCacheLock.lock()
+    if let cached = demangleCache[mangledName] {
+        demangleCacheLock.unlock()
+        return cached
+    }
+    demangleCacheLock.unlock()
+    guard mangledName.utf8.count <= 4096 else { return mangledName }
+    let result: String = mangledName.utf8CString.withUnsafeBufferPointer {
         mangledNameUTF8CStr in
 
         let demangledNamePtr = _stdlib_demangleImpl(
@@ -38,6 +48,10 @@ internal func _stdlib_demangleName(_ mangledName: String) -> String {
         }
         return mangledName
     }
+    demangleCacheLock.lock()
+    demangleCache[mangledName] = result
+    demangleCacheLock.unlock()
+    return result
 }
 
 
@@ -49,12 +63,6 @@ func swift_demangle(_ mangled: String) -> String? {
     return fixOptionalTypeName(result)
 }
 
-
-@_silgen_name("swift_getTypeByMangledNameInContext")
-public func _getTypeByMangledNameInContext(_ name: UnsafePointer<UInt8>,
-                                           _ nameLength: Int,
-                                           genericContext: UnsafeRawPointer?,
-                                           genericArguments: UnsafeRawPointer?) -> Any.Type?
 
 func canDemangleFromRuntime(_ instr: String) -> Bool {
     return instr.hasPrefix("So") || instr.hasPrefix("$So") || instr.hasPrefix("_$So") || instr.hasPrefix("_T")
@@ -89,22 +97,37 @@ func getTypeFromMangledName(_ str: String) -> String {
     if (!str.isAsciiStr()) {
         return str
     }
-    
-    guard let ptr = str.toPointer() else {
-        return str
+
+    // Swift's Objective-C protocol/class references use So<length><name>C.
+    // Some SDK/runtime combinations reject the `$sSo...` spelling; recover
+    // the readable name directly instead of leaking the mangled token.
+    if str.hasPrefix("So"), str.hasSuffix("C") {
+        let body = String(str.dropFirst(2).dropLast())
+        var digits = ""
+        for ch in body where ch.isNumber { digits.append(ch) }
+        if let length = Int(digits), length > 0 {
+            let nameStart = body.index(body.startIndex, offsetBy: digits.count)
+            let name = String(body[nameStart...])
+            if name.count >= length { return String(name.prefix(length)) }
+        }
     }
     
-    var useCnt:Int = str.count
-    if str.contains("_pG") {
-        useCnt = useCnt - str.components(separatedBy: "_pG").first!.count
+    // Never ask the Swift runtime to instantiate metadata from bytes read from
+    // an arbitrary Mach-O. Invalid or context-dependent names can crash inside
+    // swift_getTypeName. swift_demangle is a parser and safely reports failure.
+    let candidates = str.hasPrefix("$s") || str.hasPrefix("_T")
+        ? [str]
+        : ["$s" + str, str]
+    for candidate in candidates {
+        let demangled = _stdlib_demangleName(candidate)
+        if demangled != candidate {
+            return fixOptionalTypeName(demangled
+                .replacingOccurrences(of: "__C.", with: ""))
+        }
     }
-        
-    guard let typeRet: Any.Type = _getTypeByMangledNameInContext(ptr, useCnt, genericContext: nil, genericArguments: nil) else {
-        return str
-    }
-    
-    return fixOptionalTypeName(String(describing: typeRet))
+    return str
 }
+
 
 
 func fixOptionalTypeName(_ typeName: String) -> String {
@@ -126,23 +149,27 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
         return dataStruct.value
     }
     let hexName: String = dataStruct.value.removingPrefix("0x")
-    var data = hexName.hexData
+    let data = hexName.hexData
     let startAddress = dataStruct.address.int16()
+    guard data.count >= 4 else { return dataStruct.value }
     
     var mangledName: String = ""
     var i: Int = 0
+    let maxOutputLength = 256
     
-    while i < data.count {
+    while i < data.count, mangledName.utf8.count < maxOutputLength {
         let val = data[i]
         if (val == 0x01) {
             //find
             let fromIdx: Int = i + 1 // ignore 0x01
             let toIdx: Int = i + 5 // 4 bytes
-            if (toIdx > data.count) {
-                data.append(Data(repeating: 0, count: toIdx-data.count))
-            }
+            guard toIdx <= data.count else { return dataStruct.value }
             let subData = data[fromIdx..<toIdx]
-            let address = subData.rawValueBig().int16() + startAddress + fromIdx
+            let address = subData.rawValueBig().int16Subtraction() + startAddress + fromIdx
+            guard address >= 0, address < MachOData.shared.binary.count else {
+                i += 5
+                continue
+            }
             var result = ""
             if let s = MachOData.shared.mangledNameMap[dataStruct.value] {
                 result = s
@@ -152,25 +179,40 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
                 result = s
             } else if let s = MachOData.shared.swiftProtocols[address] {
                 result = s
+            } else if let range = MachOData.shared.swiftTypeRefRange,
+                      range.contains(address),
+                      address < MachOData.shared.binary.count {
+                result = DataStruct.textSwiftData(MachOData.shared.binary, offset: address,
+                                                  isMangledName: true, isClassName: false).value
+            } else if let range = MachOData.shared.swiftReflectionStringRange,
+                      range.contains(address),
+                      address < MachOData.shared.binary.count {
+                result = DataStruct.textData(MachOData.shared.binary, offset: address,
+                                              demangle: true).value
             }
             if (i == 0 && toIdx >= data.count) {
-                mangledName = mangledName + result // use original result
+            mangledName = String((mangledName + result).prefix(maxOutputLength)) // use original result
             } else {
                 let fixName = makeDemangledTypeName(result, header: "")
-                mangledName = mangledName + fixName
+                mangledName = String((mangledName + fixName).prefix(maxOutputLength))
             }
             i += 5
         } else if (val == 0x02) {
             //indirectly
             let fromIdx: Int = i + 1 // ignore 0x02
-            let toIdx: Int = i + 4 // 4 bytes
-            if (toIdx > data.count) {
-                data.append(Data(repeating: 0, count: toIdx-data.count))
-            }
+            let toIdx: Int = i + 5 // 4-byte relative offset
+            guard toIdx <= data.count else { return dataStruct.value }
             
             let subData = data[fromIdx..<toIdx]
-            let address = subData.rawValueBig().int16() + startAddress + fromIdx
+            let address = subData.rawValueBig().int16Subtraction() + startAddress + fromIdx
+            guard address >= 0, address <= MachOData.shared.binary.count - 4 else {
+                i = toIdx + 1
+                continue
+            }
             let newDataStruct = DataStruct.data(MachOData.shared.binary, offset: address, length: 4)
+            // The indirect relative offset is based at the 4-byte reference
+            // itself, not at the byte after it.
+            let indirectTarget = address + newDataStruct.value.int16Subtraction()
             var result = ""
             if let s = MachOData.shared.mangledNameMap[dataStruct.value] {
                 result = s
@@ -180,19 +222,33 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
                 result = s
             } else if let s = MachOData.shared.swiftProtocols[newDataStruct.value.int16()] {
                 result = s
+            } else if let range = MachOData.shared.swiftTypeRefRange,
+                      range.contains(indirectTarget),
+                      indirectTarget < MachOData.shared.binary.count {
+                result = DataStruct.textSwiftData(MachOData.shared.binary,
+                                                  offset: indirectTarget,
+                                                  isMangledName: true, isClassName: false).value
+            } else if let range = MachOData.shared.swiftReflectionStringRange,
+                      range.contains(indirectTarget),
+                      indirectTarget < MachOData.shared.binary.count {
+                result = DataStruct.textData(MachOData.shared.binary, offset: indirectTarget,
+                                              demangle: true).value
             }
             if (i == 0 && toIdx >= data.count) {
-                mangledName = mangledName + result
+                mangledName = String((mangledName + result).prefix(maxOutputLength))
             } else {
                 let fixName = makeDemangledTypeName(result, header: mangledName)
-                mangledName = mangledName + fixName
+                mangledName = String((mangledName + fixName).prefix(maxOutputLength))
             }
-            i = toIdx + 1
+            i = toIdx
         } else {
             //check next
-            mangledName = mangledName + String(format: "%c", val)
+            mangledName.append(String(format: "%c", val))
             i += 1
         }
+    }
+    if mangledName.utf8.count >= maxOutputLength {
+        return mangledName
     }
     if mangledName.hasSuffix("_p") {
         return mangledName.replacingOccurrences(of: "_p", with: "")
@@ -218,6 +274,13 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
 }
 
 func makeDemangledTypeName(_ type: String, header: String) -> String {
+    // Empty type name means the address-based lookup missed every name map.
+    // Synthesizing "So0C" produces a meaningless placeholder that survives to
+    // the output as a fake type (e.g. `field: So0C` / `field: So0CyytG`).
+    // Return the accumulated header instead so the slot stays honestly empty.
+    if type.isEmpty {
+        return header
+    }
     if type.hasPrefix("_$") {
         return header + type.replacingOccurrences(of: "_$", with: "_")
     }

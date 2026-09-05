@@ -8,6 +8,14 @@
 import Foundation
 
 extension Data {
+    /// Returns a slice only when the requested byte range is fully contained
+    /// in the data. Mach-O offsets come from untrusted input.
+    func safeSubdata(offset: Int, length: Int) -> Data? {
+        guard offset >= 0, length >= 0, offset <= count,
+              length <= count - offset else { return nil }
+        return Data(self[offset..<(offset + length)])
+    }
+
     func extract<T>(_ type: T.Type, offset: Int = 0) -> T {
         let data = self[offset..<offset + MemoryLayout<T>.size]
         return data.withUnsafeBytes { dataBytes in
@@ -37,6 +45,7 @@ extension Data {
         var bit = 0
         var read_next = true
 
+        guard index >= 0, index < end, end <= count else { return 0 }
         var p = self[index]
         repeat {
             let slice = UInt64(p & 0x7f)
@@ -48,6 +57,7 @@ extension Data {
             }
             read_next = (p & 0x80) != 0  // = 128
             index += 1
+            if !read_next || index >= end { break }
             p = self[index]
         } while (read_next)
         return result
@@ -58,14 +68,15 @@ extension Data {
         var bit = 0
         var byte: UInt8 = 0
 
+        guard index >= 0, index < end, end <= count else { return 0 }
         var p = self[index]
         repeat {
             byte = p
-            index += 1
-            p = self[index]
-            
             result |= (Int64(byte & 0x7F) << bit)
             bit += 7
+            index += 1
+            if (byte & 0x80) == 0 || index >= end { break }
+            p = self[index]
         } while ((byte & 0x80) != 0)
         
         if (byte & 0x40) != 0 {

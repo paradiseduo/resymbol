@@ -65,6 +65,22 @@ struct FieldRecord {
     }
 }
 
+struct SwiftStoredProperty {
+    let declaration: String
+    let name: String
+
+    static func from(_ record: FieldRecord) -> SwiftStoredProperty {
+        let rawName = record.fieldName.swiftName.value
+        let lazyPrefix = "$__lazy_storage_$_"
+        if rawName.hasPrefix(lazyPrefix) {
+            return SwiftStoredProperty(declaration: "lazy var",
+                                       name: String(rawName.dropFirst(lazyPrefix.count)))
+        }
+        return SwiftStoredProperty(declaration: record.flags.isVar ? "var" : "let",
+                                   name: rawName)
+    }
+}
+
 struct FieldDescriptor {
     let fieldDescriptor: DataStruct
     let mangledTypeName: SwiftName
@@ -76,8 +92,8 @@ struct FieldDescriptor {
     
     static func FD(_ binary: Data, offset: Int) -> FieldDescriptor {
         let fieldDescriptor = DataStruct.data(binary, offset: offset, length: 4)
-        
-        let newOffset = fieldDescriptor.address.int16()+fieldDescriptor.value.int16()
+        let newOffset = MachOData.shared.resolveRelativePointer(base: offset, raw: fieldDescriptor.value)
+            ?? (offset + fieldDescriptor.value.int16Subtraction())
         
         let mangledTypeName = SwiftName.SN(binary, offset: newOffset, isMangledName: false, isClassName: false)
         let superclass = DataStruct.data(binary, offset: newOffset+4, length: 4)
@@ -86,11 +102,17 @@ struct FieldDescriptor {
         let numFields = DataStruct.data(binary, offset: newOffset+12, length: 4)
         var fieldRecords = [FieldRecord]()
         
-        if fieldRecordSize.value.int16() != 0 {
+        let recordSize = fieldRecordSize.value.int16()
+        let fieldCount = numFields.value.int16()
+        // A field record currently contains three 32-bit words. Reject
+        // corrupt descriptors instead of trusting attacker-controlled sizes.
+        if newOffset >= 0, newOffset <= binary.count - 16,
+           recordSize >= 12, recordSize <= 4096, fieldCount >= 0,
+           fieldCount <= (binary.count - min(max(newOffset + 16, 0), binary.count)) / recordSize {
             var fieldStart = newOffset+16
-            for _ in 0..<numFields.value.int16() {
+            for _ in 0..<fieldCount {
                 fieldRecords.append(FieldRecord.FR(binary, offset: fieldStart))
-                fieldStart += fieldRecordSize.value.int16()
+                fieldStart += recordSize
             }
         }
         

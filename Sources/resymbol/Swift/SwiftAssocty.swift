@@ -44,9 +44,23 @@ struct SwiftAssocty {
     }
     
     func serialization() {
-        var result = "extension \(fixMangledTypeName(conformingTypeName.swiftName)): \(protocolTypeName.swiftName.value) {\n"
+        let conforming = fixMangledTypeName(conformingTypeName.swiftName)
+        let proto = protocolTypeName.swiftName.value
+        guard !conforming.isEmpty, !proto.isEmpty,
+              !conforming.contains("<invalid Swift mangling"),
+              !proto.contains("Builtin.NativeObject"),
+              !proto.contains("variadic-marker"),
+              !proto.contains("empty-list") else { return }
+        var result = "extension \(conforming): \(proto) {\n"
         for item in associatedTypeRecords {
-            result += "    \(item.name.swiftName.value):\(fixMangledTypeName(item.substitutedTypeName.swiftName))\n"
+            let name = item.name.swiftName.value
+            let type = fixMangledTypeName(item.substitutedTypeName.swiftName)
+            guard !name.isEmpty,
+                  !type.contains("Builtin.NativeObject"),
+                  !type.contains("variadic-marker"),
+                  !type.contains("empty-list"),
+                  !type.contains("<invalid Swift mangling") else { continue }
+            result += "    \(name):\(type)\n"
         }
         result += "}\n"
         ConsoleIO.writeMessage(result)
