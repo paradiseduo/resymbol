@@ -81,3 +81,33 @@ class SyncDictionary<V: Hashable, T>: Collection {
     }
 
 }
+
+extension SyncDictionary where T: Comparable {
+    /// Atomically retain a deterministic representative when several parser
+    /// workers publish the same logical key concurrently.
+    func setDeterministically(_ value: T, forKey key: V) {
+        queue.sync(flags: .barrier) {
+            guard let existing = dictionary[key] else {
+                dictionary[key] = value
+                return
+            }
+            if value < existing { dictionary[key] = value }
+        }
+    }
+}
+
+extension SyncDictionary where T == String {
+    /// Keep an exact value only while every producer agrees. An empty value
+    /// marks a collided legacy key so consumers can fall back to address-based
+    /// evidence instead of choosing a random type.
+    func setIfUnambiguous(_ value: String, forKey key: V) {
+        guard !value.isEmpty else { return }
+        queue.sync(flags: .barrier) {
+            guard let existing = dictionary[key] else {
+                dictionary[key] = value
+                return
+            }
+            if existing != value { dictionary[key] = "" }
+        }
+    }
+}

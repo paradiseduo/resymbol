@@ -41,6 +41,15 @@ let activeProcessorCount = max(1, ProcessInfo.processInfo.activeProcessorCount /
 
 struct Section {
 
+    private struct SectionRange {
+        let offset: UInt32
+        let size: UInt64
+        let address: UInt64
+
+        init(_ section: section_64) { offset = section.offset; size = section.size; address = section.addr }
+        init(_ section: MachOSectionInfo) { offset = section.fileOffset; size = section.size; address = section.address }
+    }
+
     private static let parseCoordinator = DispatchQueue(label: "com.resymbol.parse-coordinator", qos: .userInitiated)
 
     static func readSection(_ input: Data, type: BitType, isByteSwapped: Bool, symbol: Bool = false, handle: @escaping (Bool) -> Void) {
@@ -48,6 +57,7 @@ struct Section {
             let completion = DispatchSemaphore(value: 0)
             MachOData.shared.reset()
             MachOData.shared.binary = input
+            MachOData.shared.originalBinary = input
             readSectionImpl(input, type: type, isByteSwapped: isByteSwapped, symbol: symbol) { result in
                 handle(result)
                 completion.signal()
@@ -66,141 +76,103 @@ struct Section {
         
         // Chained pointers must be materialized before any section is parsed. Some
         // protocol handlers run while the load-command table is being scanned.
-        var preliminaryHeader = binary.extract(mach_header_64.self)
-        if isByteSwapped { swap_mach_header_64(&preliminaryHeader, byteSwappedOrder) }
-        var preliminaryOffset = MemoryLayout<mach_header_64>.size
-        var preliminarySegments = [ChainedFixups.Segment]()
-        var preliminaryFixups: Int?
-        for _ in 0..<preliminaryHeader.ncmds {
-            guard preliminaryOffset + MemoryLayout<load_command>.size <= binary.count else { break }
-            var command = binary.extract(load_command.self, offset: preliminaryOffset)
-            if isByteSwapped { swap_load_command(&command, byteSwappedOrder) }
-            guard command.cmdsize >= UInt32(MemoryLayout<load_command>.size), preliminaryOffset + Int(command.cmdsize) <= binary.count else { break }
-            if command.cmd == LC_SEGMENT_64 {
-                var segment = binary.extract(segment_command_64.self, offset: preliminaryOffset)
-                if isByteSwapped { swap_segment_command_64(&segment, byteSwappedOrder) }
-                preliminarySegments.append(.init(vmaddr: segment.vmaddr, fileoff: segment.fileoff))
-            } else if command.cmd == LC_DYLD_CHAINED_FIXUPS {
-                preliminaryFixups = preliminaryOffset
-            }
-            preliminaryOffset += Int(command.cmdsize)
-        }
-        if let command = preliminaryFixups {
-            binary = ChainedFixups.apply(to: binary, commandOffset: command, segments: preliminarySegments)
-        }
+        // Parse the validated command model once. Chained fixups may rewrite
+        // pointer bytes, but never change load-command locations or section
+        // geometry, so the same model remains valid for the patched data.
         guard let machOFile = MachOFile.parse(binary) else {
             ConsoleIO.writeMessage("Invalid 64-bit Mach-O structure", .error)
             handle(false)
             return
         }
+        if let encryption = machOFile.encryptionInfo, encryption.isEncrypted {
+            ConsoleIO.writeMessage("Mach-O contains encrypted data (cryptid \(encryption.cryptid)); metadata parsing is unavailable", .error)
+            handle(false)
+            return
+        }
         MachOData.shared.machOFile = machOFile
+        if let command = machOFile.firstCommand(ofKind: .chainedFixups) {
+            binary = ChainedFixups.apply(to: binary, command: command,
+                                         resolver: MachOAddressResolver(file: machOFile, data: binary))
+        }
+        let resolver = MachOAddressResolver(file: machOFile, data: binary)
         MachOData.shared.segments = machOFile.segments.map {
             MachOSegmentInfo(vmaddr: $0.vmaddr, vmsize: $0.vmsize,
                              fileoff: $0.fileoff, filesize: $0.filesize)
         }
-        var categorySections = [section_64]()
-        var classSections = [section_64]()
-        var swiftProtoSection: section_64?
-        var swiftProtocolsSection: section_64?
-        var swiftTypeSection: section_64?
-        var assocty: section_64?
-        var builtin: section_64?
-        var capture: section_64?
+        var categorySections = [SectionRange]()
+        var classSections = [SectionRange]()
+        var swiftProtoSection: SectionRange?
+        var swiftProtocolsSection: SectionRange?
+        var swiftTypeSection: SectionRange?
+        var assocty: SectionRange?
+        var builtin: SectionRange?
+        var capture: SectionRange?
         var symtab: symtab_command!
         var needSymbol = symbol
+
+        for section in machOFile.sections {
+            let range = SectionRange(section)
+            if section.segmentName.hasPrefix("__DATA") {
+                if section.sectionName.contains("objc_classlist") || section.sectionName.contains("objc_nlclslist") {
+                    classSections.append(range)
+                } else if section.sectionName.contains("objc_catlist") || section.sectionName.contains("objc_nlcatlist") {
+                    categorySections.append(range)
+                } else if section.sectionName.contains("objc_protolist") {
+                    handle__objc_protolist(binary, section: range)
+                }
+            } else if section.segmentName.hasPrefix("__TEXT") {
+                switch section.sectionName {
+                case "__swift5_proto": swiftProtoSection = range
+                case let name where name.contains("__swift5_protos"):
+                    swiftProtocolsSection = range
+                    needSymbol = true
+                case let name where name.contains("__swift5_types"): swiftTypeSection = range
+                case let name where name.contains("__swift5_typeref"):
+                    MachOData.shared.swiftTypeRefRange = Int(range.offset)..<(Int(range.offset) + Int(range.size))
+                    handle__swift5_ref(binary, section: range)
+                case let name where name.contains("__swift5_reflstr"):
+                    MachOData.shared.swiftReflectionStringRange = Int(range.offset)..<(Int(range.offset) + Int(range.size))
+                    handle__swift5_ref(binary, section: range)
+                case let name where name.contains("__swift5_assocty"): assocty = range
+                case let name where name.contains("__swift5_builtin"): builtin = range
+                case let name where name.contains("__swift5_capture"): capture = range; needSymbol = true
+                default: break
+                }
+            }
+        }
         
         var header = binary.extract(mach_header_64.self)
         if isByteSwapped { swap_mach_header_64(&header, byteSwappedOrder) }
-        var offset_machO = MemoryLayout.size(ofValue: header)
         var vmAddress = [UInt64]()
-        for _ in 0..<header.ncmds {
-            guard offset_machO >= 0, offset_machO + MemoryLayout<load_command>.size <= binary.count else {
-                ConsoleIO.writeMessage("Invalid Mach-O load command table", .error)
-                handle(false)
-                return
-            }
-            var loadCommand = binary.extract(load_command.self, offset: offset_machO)
-            if isByteSwapped { swap_load_command(&loadCommand, byteSwappedOrder) }
-            let commandSize = Int(loadCommand.cmdsize)
-            guard commandSize >= MemoryLayout<load_command>.size,
-                  offset_machO + commandSize <= binary.count else {
-                ConsoleIO.writeMessage("Invalid Mach-O load command size", .error)
-                handle(false)
-                return
-            }
-            if loadCommand.cmd == LC_SEGMENT_64 {
-                var segment = binary.extract(segment_command_64.self, offset: offset_machO)
-                if isByteSwapped {
-                    swap_segment_command_64(&segment, byteSwappedOrder)
+        for command in machOFile.loadCommands {
+            let offset_machO = command.fileOffset
+            if command.kind == .segment64 {
+                if case .segment64(let segment) = command.payload {
+                    vmAddress.append(segment.vmaddr)
+                    if segment.name.isEmpty { needSymbol = true }
                 }
-                let segmentSegname = String(rawCChar: segment.segname)
-                vmAddress.append(segment.vmaddr)
-                if segmentSegname == "" {
-                    needSymbol = true
-                }
-                if segmentSegname.contains("__DATA") || segmentSegname.contains("__TEXT") {
-                    var offset_segment = offset_machO + MemoryLayout<segment_command_64>.size
-                    for _ in 0..<segment.nsects {
-                        guard offset_segment + MemoryLayout<section_64>.size <= binary.count else { break }
-                        let section = binary.extract(section_64.self, offset: offset_segment)
-                        let sectionSegname = String(rawCChar: section.segname)
-                        if sectionSegname.hasPrefix("__DATA") {
-                            let sectname = String(rawCChar: section.sectname)
-                            if sectname.contains("objc_classlist") || sectname.contains("objc_nlclslist") {
-                                classSections.append(section)
-                            } else if sectname.contains("objc_catlist") || sectname.contains("objc_nlcatlist"){
-                                categorySections.append(section)
-                            } else if sectname.contains("objc_protolist") {
-                                handle__objc_protolist(binary, section: section)
-                            }
-                        } else if sectionSegname.hasPrefix("__TEXT") {
-                            let sectname = String(rawCChar: section.sectname)
-                            if sectname == "__swift5_proto" {
-                                swiftProtoSection = section
-                            } else if sectname.contains("__swift5_protos") {
-                                swiftProtocolsSection = section
-                                needSymbol = true
-                            } else if sectname.contains("__swift5_types") {
-                                swiftTypeSection = section
-                            } else if sectname.contains("__swift5_typeref") {
-                                MachOData.shared.swiftTypeRefRange = Int(section.offset)..<(Int(section.offset) + Int(section.size))
-                                handle__swift5_ref(binary, section: section)
-                            } else if sectname.contains("__swift5_reflstr") {
-                                MachOData.shared.swiftReflectionStringRange = Int(section.offset)..<(Int(section.offset) + Int(section.size))
-                                handle__swift5_ref(binary, section: section)
-                            } else if sectname.contains("__swift5_assocty") {
-                                assocty = section
-                            } else if sectname.contains("__swift5_builtin") {
-                                builtin = section
-                            } else if sectname.contains("__swift5_capture") {
-                                capture = section
-                                needSymbol = true
-                            }
-                        }
-                        offset_segment += MemoryLayout<section_64>.size
-                    }
-                }
-            } else if loadCommand.cmd == LC_DYLD_INFO || loadCommand.cmd == LC_DYLD_INFO_ONLY {
+            } else if command.kind == .dyldInfo {
                 bindingDylb(binary, offSet: offset_machO, isByteSwapped: isByteSwapped, vmAddress: vmAddress)
-            } else if loadCommand.cmd == LC_SYMTAB {
-                symtab = binary.extract(symtab_command.self, offset: offset_machO)
-                if isByteSwapped {
-                    swap_symtab_command(&symtab, byteSwappedOrder)
-                }
-            } else if loadCommand.cmd == LC_DYSYMTAB {
+            } else if command.kind == .symbolTable {
+                // Typed MachOFile scan already validated and decoded this command.
+                if let command = machOFile.firstCommand(ofKind: .symbolTable),
+                   case .symbolTable(let value) = command.payload { symtab = value }
+            } else if command.kind == .dynamicSymbolTable {
                 // Parsed after the command scan so LC_SYMTAB and every relevant
                 // section are available regardless of load-command ordering.
-            } else if loadCommand.cmd == LC_DYLD_EXPORTS_TRIE {
-                ExportTrie.apply(binary, commandOffset: offset_machO)
-            } else if loadCommand.cmd == LC_DYLD_CHAINED_FIXUPS {
+            } else if command.kind == .exportsTrie {
+                if let command = machOFile.firstCommand(ofKind: .exportsTrie) {
+                    ExportTrie.apply(binary, command: command)
+                }
+            } else if command.kind == .chainedFixups {
                 // Applied in the preliminary pass above.
             }
-            offset_machO += commandSize
         }
         if needSymbol, symtab != nil {
             handle_string_table(binary, symtab: symtab)
         }
-        DynamicSymbolTable.apply(binary, isByteSwapped: isByteSwapped)
+        DynamicSymbolTable.apply(binary, machOFile: machOFile)
+        MachOData.shared.buildSwiftMethodIndex()
         dyldGroup.wait()
         dyldGroup.notify(qos: DispatchQoS.userInteractive, flags: DispatchWorkItemFlags.barrier, queue: queueWait) {
             if needSymbol, symtab != nil {
@@ -210,7 +182,7 @@ struct Section {
                 handle__objc_classlist(binary, section: section)
             }
             if let section = swiftProtoSection {
-                handle__swift5_proto(binary, section: section)
+                handle__swift5_proto(binary, section: section, resolver: resolver)
             }
             if let section = assocty {
                 handle__swift5_assocty(binary, section: section)
@@ -220,11 +192,11 @@ struct Section {
             }
             symbolGroup.wait()
             symbolGroup.notify(qos: DispatchQoS.userInteractive, flags: DispatchWorkItemFlags.barrier, queue: queueWait) {
-                if let section = swiftProtocolsSection {
-                    handle__swift5_protos(binary, section: section, segments: preliminarySegments)
-                }
                 if let section = swiftTypeSection {
-                    handle__swift5_types(binary, section: section)
+                    if let protocols = swiftProtocolsSection {
+                        handle__swift5_protos(binary, section: protocols, resolver: resolver)
+                    }
+                    handle__swift5_types(binary, section: section, resolver: resolver)
                 }
                 for section in categorySections {
                     handle__objc_catlist(binary, section: section)
@@ -246,36 +218,74 @@ struct Section {
     
     static func printSwiftType() {
         let classes = MachOData.shared.swiftClasses.sorted {
-            $0.type.name.swiftName.value < $1.type.name.swiftName.value
+            if $0.type.name.swiftName.value != $1.type.name.swiftName.value {
+                return $0.type.name.swiftName.value < $1.type.name.swiftName.value
+            }
+            let lhsSuperclass = $0.superclassType.superclassType.value
+            let rhsSuperclass = $1.superclassType.superclassType.value
+            let lhsUseful = !lhsSuperclass.isEmpty && lhsSuperclass != None && lhsSuperclass != "So8NSObjectC"
+            let rhsUseful = !rhsSuperclass.isEmpty && rhsSuperclass != None && rhsSuperclass != "So8NSObjectC"
+            if lhsUseful != rhsUseful { return lhsUseful }
+            return $0.type.name.name.address < $1.type.name.name.address
         }
+        var emitted = Set<String>()
         for item in classes {
             // Serialization writes to stdout. Keep this final stage
             // synchronous so output order is stable across runs; parsing
             // itself remains concurrent.
+            let key = item.type.name.swiftName.value
+            guard item.type.hasUsableName, emitted.insert(key).inserted else { continue }
             item.serialization()
         }
         
         let structs = MachOData.shared.swiftStruct.sorted {
-            $0.type.name.swiftName.value < $1.type.name.swiftName.value
+            if $0.type.name.swiftName.value != $1.type.name.swiftName.value {
+                return $0.type.name.swiftName.value < $1.type.name.swiftName.value
+            }
+            if $0.type.fieldDescriptor.fieldRecords.count != $1.type.fieldDescriptor.fieldRecords.count {
+                return $0.type.fieldDescriptor.fieldRecords.count > $1.type.fieldDescriptor.fieldRecords.count
+            }
+            return $0.type.name.name.address < $1.type.name.name.address
         }
+        emitted.removeAll()
         for item in structs {
+            let key = item.type.name.swiftName.value
+            guard item.type.hasUsableName, emitted.insert(key).inserted else { continue }
             item.serialization()
         }
         
         let enums = MachOData.shared.swiftEnum.sorted {
-            $0.type.name.swiftName.value < $1.type.name.swiftName.value
+            if $0.type.name.swiftName.value != $1.type.name.swiftName.value {
+                return $0.type.name.swiftName.value < $1.type.name.swiftName.value
+            }
+            if $0.type.fieldDescriptor.fieldRecords.count != $1.type.fieldDescriptor.fieldRecords.count {
+                return $0.type.fieldDescriptor.fieldRecords.count > $1.type.fieldDescriptor.fieldRecords.count
+            }
+            return $0.type.name.name.address < $1.type.name.name.address
         }
+        emitted.removeAll()
         for item in enums {
+            let key = item.type.name.swiftName.value
+            guard item.type.hasUsableName, emitted.insert(key).inserted else { continue }
             item.serialization()
         }
+        var associatedKeys = Set<String>()
         for i in 0..<MachOData.shared.swiftAssocty.count {
-            MachOData.shared.swiftAssocty[i]?.serialization()
+            guard let item = MachOData.shared.swiftAssocty[i] else { continue }
+            let key = "\(item.conformingTypeName.swiftName.value)|\(item.protocolTypeName.swiftName.value)"
+            guard associatedKeys.insert(key).inserted else { continue }
+            item.serialization()
         }
         for i in 0..<MachOData.shared.swiftBuiltin.count {
-            MachOData.shared.swiftBuiltin[i]?.serialization()
+            guard let item = MachOData.shared.swiftBuiltin[i] else { continue }
+            guard emitted.insert(item.typeName.swiftName.value).inserted else { continue }
+            item.serialization()
         }
+        emitted.removeAll()
         for i in 0..<MachOData.shared.swiftCapture.count {
-            MachOData.shared.swiftCapture[i]?.serialization()
+            guard let item = MachOData.shared.swiftCapture[i] else { continue }
+            guard emitted.insert(String(item.descriptorAddress, radix: 16)).inserted else { continue }
+            item.serialization()
         }
     }
     
@@ -299,33 +309,13 @@ struct Section {
             return
         }
         
-        var header = binary.extract(mach_header_64.self)
-        if isByteSwapped { swap_mach_header_64(&header, byteSwappedOrder) }
-        var symtab: symtab_command!
-        var offset_machO = MemoryLayout.size(ofValue: header)
-        for _ in 0..<header.ncmds {
-            guard offset_machO + MemoryLayout<load_command>.size <= binary.count else {
-                handle(false)
-                return
-            }
-            var loadCommand = binary.extract(load_command.self, offset: offset_machO)
-            if isByteSwapped { swap_load_command(&loadCommand, byteSwappedOrder) }
-            let commandSize = Int(loadCommand.cmdsize)
-            guard commandSize >= MemoryLayout<load_command>.size,
-                  offset_machO + commandSize <= binary.count else {
-                handle(false)
-                return
-            }
-            if loadCommand.cmd == LC_SYMTAB {
-                symtab = binary.extract(symtab_command.self, offset: offset_machO)
-                if isByteSwapped {
-                    swap_symtab_command(&symtab, byteSwappedOrder)
-                }
-                break
-            }
-            offset_machO += commandSize
+        guard let file = MachOFile.parse(binary) else {
+            ConsoleIO.writeMessage("Invalid 64-bit Mach-O structure", .error)
+            handle(false)
+            return
         }
-        guard symtab != nil else {
+        guard let command = file.firstCommand(ofKind: .symbolTable),
+              case .symbolTable(let symtab) = command.payload else {
             ConsoleIO.writeMessage("Mach-O does not contain an LC_SYMTAB command", .error)
             handle(false)
             return
@@ -354,7 +344,7 @@ struct Section {
 
 
 extension Section {
-    private static func handle__objc_classlist(_ binary: Data, section: section_64) {
+    private static func handle__objc_classlist(_ binary: Data, section: SectionRange) {
         guard let d = binary.safeSubdata(offset: Int(section.offset), length: Int(section.size)) else { return }
         let count = d.count>>3
         for i in 0..<count {
@@ -373,6 +363,30 @@ extension Section {
                     }
                     if let c = oc.classRO {
                         MachOData.shared.objcClasses[oc.isa.address.int16()] = c.name.className.value
+                        let boundSuperclass = fixSymbolName(
+                            MachOData.shared.dylbMap[oc.superClass.address.ltrim("0")])
+                        let runtimeSuperclass: String? = {
+                            if let boundSuperclass, !boundSuperclass.isEmpty { return boundSuperclass }
+                            guard let superclassOffset = MachOData.shared.resolvePointerWithLegacyFallback(
+                                oc.superClass.value), superclassOffset > 0 else { return nil }
+                            let superclassObject = ObjcClass.OC(binary, offset: superclassOffset)
+                            let name = superclassObject.classRO?.name.className.value ?? ""
+                            return name.isEmpty || name == None ? nil : name
+                        }()
+                        // Swift classes exposed through ObjC often have a
+                        // module-qualified runtime name even when the class
+                        // data bit is not preserved in a stripped image.
+                        let looksSwift = oc.isSwiftClass || c.name.className.value.contains(".")
+                        if looksSwift, let superclass = runtimeSuperclass,
+                           !superclass.isEmpty {
+                            let sourceSuperclass = superclass.split(separator: ".").last.map(String.init) ?? superclass
+                            MachOData.shared.swiftSuperclasses.setIfUnambiguous(
+                                sourceSuperclass, forKey: c.name.className.value)
+                            if let shortName = c.name.className.value.split(separator: ".").last {
+                                MachOData.shared.swiftSuperclasses.setIfUnambiguous(
+                                    sourceSuperclass, forKey: String(shortName))
+                            }
+                        }
                     }
                     oc.serialization()
                 }
@@ -381,7 +395,7 @@ extension Section {
         }
     }
     
-    private static func handle__objc_catlist(_ binary: Data, section: section_64) {
+    private static func handle__objc_catlist(_ binary: Data, section: SectionRange) {
         guard let d = binary.safeSubdata(offset: Int(section.offset), length: Int(section.size)) else { return }
         let count = d.count>>3
         for i in 0..<count {
@@ -398,7 +412,7 @@ extension Section {
         }
     }
     
-    private static func handle__objc_protolist(_ binary: Data, section: section_64) {
+    private static func handle__objc_protolist(_ binary: Data, section: SectionRange) {
         guard let d = binary.safeSubdata(offset: Int(section.offset), length: Int(section.size)) else { return }
         let count = d.count>>3
         for i in 0..<count {
@@ -408,8 +422,12 @@ extension Section {
                 
                 let rawPointer = UInt64(sub.rawValueBig(), radix: 16) ?? 0
                 if let offsetS = MachOData.shared.resolvePointer(rawPointer), offsetS > 0 {
+                    guard MachOData.shared.objcProtocols[offsetS] == nil else {
+                        dyldGroup.leave()
+                        return
+                    }
                     let pr = ObjcProtocol.OCPT(binary, offset: offsetS)
-                    MachOData.shared.objcProtocols[pr.isa.address.int16()] = pr.name.className.value
+                    MachOData.shared.objcProtocols[offsetS] = pr.name.className.value
                     pr.serialization()
                 }
                 dyldGroup.leave()
@@ -420,28 +438,28 @@ extension Section {
 
 
 extension Section {
-    private static func handle__swift5_protos(_ binary: Data, section: section_64,
-                                               segments: [ChainedFixups.Segment]) {
+    private static func handle__swift5_protos(_ binary: Data, section: SectionRange,
+                                               resolver: MachOAddressResolver) {
         guard let d = binary.safeSubdata(offset: Int(section.offset), length: Int(section.size)) else { return }
         let count = d.count>>2
         for i in 0..<count {
             let location = i<<2
             let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-            let offsetS = (Int(section.offset) + location + sub.rawValueBig().int16Subtraction()).alignment()
+            let base = Int(section.offset) + location
+            guard let offsetS = resolver.resolveAlignedRelativePointer(
+                fieldOffset: base, rawHex: sub.rawValueBig()), offsetS > 0 else { continue }
             if offsetS > 0 {
-                let p = ProtocolDescriptor.PD(binary, offset: offsetS) { fileOffset in
-                    guard let segment = segments
-                        .filter({ Int($0.fileoff) <= fileOffset })
-                        .max(by: { $0.fileoff < $1.fileoff }) else { return nil }
-                    return segment.vmaddr + UInt64(fileOffset - Int(segment.fileoff))
-                }
+                let p = ProtocolDescriptor.PD(binary, offset: offsetS,
+                                              addressResolver: resolver.vmAddress(forFileOffset:),
+                                              resolver: resolver)
                 p.serialization()
                 MachOData.shared.swiftProtocols[offsetS] = p.name.swiftName.value
             }
         }
     }
     
-    private static func handle__swift5_proto(_ binary: Data, section: section_64) {
+    private static func handle__swift5_proto(_ binary: Data, section: SectionRange,
+                                             resolver: MachOAddressResolver) {
         guard let d = binary.safeSubdata(offset: Int(section.offset), length: Int(section.size)) else { return }
         let count = d.count>>2
         for i in 0..<count {
@@ -449,15 +467,24 @@ extension Section {
             DispatchLimitQueue.shared.limit(queue: queueSwiftProtocol, group: symbolGroup, count: activeProcessorCount) {
                 let location = i<<2
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-                let offsetS = (Int(section.offset) + location + sub.rawValueBig().int16Subtraction()).alignment()
-                if offsetS > 0 {
+            let entryBase = Int(section.offset) + location
+                if let offsetS = resolver.resolveAlignedRelativePointer(
+                    fieldOffset: entryBase, rawHex: sub.rawValueBig()), offsetS > 0 {
                     let p = SwiftProtocol.SP(binary, offset: offsetS)
+                    if let conformance = SwiftProtocolConformance.parse(binary, offset: offsetS,
+                                                                          resolver: resolver) {
+                        MachOData.shared.swiftProtocolConformances.append(conformance)
+                    }
                     var nominalName = ""
-                    switch p.nominalTypeDescriptor.nominalTypeDescriptor.value.int16Subtraction() & 0x3 {
+                    let nominalFlags = UInt32(p.nominalTypeDescriptor.nominalTypeDescriptor.value,
+                                              radix: 16) ?? 0
+                    switch Int(nominalFlags & 0x3) {
                     case 0:
                         nominalName = MachOData.shared.nominalOffsetMap[p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()] ?? ""
                         if nominalName.isEmpty {
-                            MachOData.shared.nominalOffsetMap[p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16()] = p.nominalTypeDescriptor.nominalTypeName.value
+                            MachOData.shared.nominalOffsetMap.setDeterministically(
+                                p.nominalTypeDescriptor.nominalTypeName.value,
+                                forKey: p.nominalTypeDescriptor.nominalTypeDescriptor.address.int16())
                         }
                         break
                     case 1:
@@ -477,33 +504,65 @@ extension Section {
         }
     }
     
-    private static func handle__swift5_types(_ binary: Data, section: section_64) {
+    private static func handle__swift5_types(_ binary: Data, section: SectionRange,
+                                             resolver: MachOAddressResolver) {
         guard let d = binary.safeSubdata(offset: Int(section.offset), length: Int(section.size)) else { return }
         let count = d.count>>2
+
+        // Seed every nominal descriptor before concurrent workers parse full
+        // class/struct/enum bodies. Superclass and field demangling can refer
+        // to a sibling descriptor; populating this index first removes the
+        // scheduler-dependent lookup that previously changed large dumps.
+        for i in 0..<count {
+            let location = i << 2
+            let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
+            let entryBase = Int(section.offset) + location
+            guard let offsetS = resolver.resolveAlignedRelativePointer(
+                fieldOffset: entryBase, rawHex: sub.rawValueBig()), offsetS > 0 else { continue }
+            let flags = SwiftFlags.SF(binary, offset: offsetS)
+            switch flags.kind {
+            case .Class, .Enum, .Struct:
+                let type = SwiftType.ST(binary, offset: offsetS + 4, flags: flags)
+                MachOData.shared.nominalOffsetMap.setDeterministically(
+                    type.name.swiftName.value, forKey: offsetS)
+            default:
+                continue
+            }
+        }
         for i in 0..<count {
             categoryGroup.enter()
             DispatchLimitQueue.shared.limit(queue: queueSwiftTypes, group: categoryGroup, count: activeProcessorCount) {
                 let location = i<<2
                 let sub = d.subdata(in: Range<Data.Index>(NSRange(location: location, length: 4))!)
-                let offsetS = (Int(section.offset) + location + sub.rawValueBig().int16Subtraction()).alignment()
-                if offsetS > 0 {
+                let entryBase = Int(section.offset) + location
+                if let offsetS = resolver.resolveAlignedRelativePointer(
+                    fieldOffset: entryBase, rawHex: sub.rawValueBig()), offsetS > 0 {
                     let flags = SwiftFlags.SF(binary, offset: offsetS)
                     switch flags.kind {
                     case .Class:
                         let c = SwiftClass.SC(binary, offset: offsetS+4, flags: flags)
                         MachOData.shared.swiftClasses.append(c)
-                        MachOData.shared.nominalOffsetMap[offsetS] = c.type.name.swiftName.value
-                        MachOData.shared.mangledNameMap[c.type.fieldDescriptor.mangledTypeName.swiftName.value] = c.type.name.swiftName.value
+                        MachOData.shared.nominalOffsetMap.setDeterministically(c.type.name.swiftName.value,
+                                                                                forKey: offsetS)
+                        MachOData.shared.mangledNameMap.setIfUnambiguous(
+                            c.type.name.swiftName.value,
+                            forKey: c.type.fieldDescriptor.mangledTypeName.swiftName.value)
                     case .Enum:
                         let e = SwiftEnum.SE(binary, offset: offsetS+4, flags: flags)
                         MachOData.shared.swiftEnum.append(e)
-                        MachOData.shared.nominalOffsetMap[offsetS] = e.type.name.swiftName.value
-                        MachOData.shared.mangledNameMap[e.type.fieldDescriptor.mangledTypeName.swiftName.value] = e.type.name.swiftName.value
+                        MachOData.shared.nominalOffsetMap.setDeterministically(e.type.name.swiftName.value,
+                                                                                forKey: offsetS)
+                        MachOData.shared.mangledNameMap.setIfUnambiguous(
+                            e.type.name.swiftName.value,
+                            forKey: e.type.fieldDescriptor.mangledTypeName.swiftName.value)
                     case .Struct:
                         let s = SwiftStruct.SS(binary, offset: offsetS+4, flags: flags)
                         MachOData.shared.swiftStruct.append(s)
-                        MachOData.shared.nominalOffsetMap[offsetS] = s.type.name.swiftName.value
-                        MachOData.shared.mangledNameMap[s.type.fieldDescriptor.mangledTypeName.swiftName.value] = s.type.name.swiftName.value
+                        MachOData.shared.nominalOffsetMap.setDeterministically(s.type.name.swiftName.value,
+                                                                                forKey: offsetS)
+                        MachOData.shared.mangledNameMap.setIfUnambiguous(
+                            s.type.name.swiftName.value,
+                            forKey: s.type.fieldDescriptor.mangledTypeName.swiftName.value)
                     default:
                         break
                     }
@@ -513,7 +572,7 @@ extension Section {
         }
     }
     
-    private static func handle__swift5_assocty(_ binary: Data, section: section_64) {
+    private static func handle__swift5_assocty(_ binary: Data, section: SectionRange) {
         symbolGroup.enter()
         DispatchLimitQueue.shared.limit(queue: queueSwiftAssocty, group: symbolGroup, count: activeProcessorCount) {
             var index = Int(section.offset)
@@ -525,7 +584,7 @@ extension Section {
         }
     }
     
-    private static func handle__swift5_builtin(_ binary: Data, section: section_64) {
+    private static func handle__swift5_builtin(_ binary: Data, section: SectionRange) {
         symbolGroup.enter()
         DispatchLimitQueue.shared.limit(queue: queueSwiftBuiltin, group: symbolGroup, count: activeProcessorCount) {
             var index = Int(section.offset)
@@ -537,13 +596,15 @@ extension Section {
         }
     }
     
-    private static func handle__swift5_capture(_ binary: Data, section: section_64) {
+    private static func handle__swift5_capture(_ binary: Data, section: SectionRange) {
         categoryGroup.enter()
         DispatchLimitQueue.shared.limit(queue: queueSwiftCapture, group: categoryGroup, count: activeProcessorCount) {
             var index = Int(section.offset)
             let end = Int(section.offset) + Int(section.size)
             while index < end {
-                MachOData.shared.swiftCapture.append(SwiftCapture.SC(binary, offset: &index, section: section))
+                MachOData.shared.swiftCapture.append(SwiftCapture.SC(binary, offset: &index,
+                                                                     sectionAddress: section.address,
+                                                                     sectionOffset: section.offset))
             }
             categoryGroup.leave()
         }
@@ -608,7 +669,13 @@ extension Section {
                     if let raw = nlist.name(), raw.hasPrefix("$s") || raw.hasPrefix("_$s") {
                         let demangled = swift_demangle(raw) ?? ""
                         if let type = accessorType(from: demangled), let property = accessorProperty(from: demangled) {
-                            MachOData.shared.accessorTypes[property] = type
+                            if let owner = accessorOwner(from: demangled), !owner.isEmpty {
+                                MachOData.shared.accessorTypes.setIfUnambiguous(
+                                    type, forKey: "\(owner)|\(property)")
+                            } else {
+                                MachOData.shared.accessorTypes.setIfUnambiguous(type,
+                                                                                     forKey: property)
+                            }
                         }
                     }
                 }
@@ -617,7 +684,7 @@ extension Section {
         }
     }
     
-    private static func handle__swift5_ref(_ binary: Data, section: section_64) {
+    private static func handle__swift5_ref(_ binary: Data, section: SectionRange) {
         guard let stringTable = binary.safeSubdata(offset: Int(section.offset), length: Int(section.size)) else { return }
         dyldGroup.enter()
         DispatchLimitQueue.shared.limit(queue: queueSwiftRef, group: dyldGroup, count: activeProcessorCount) {
@@ -632,7 +699,8 @@ extension Section {
                     if index < stringTable.count { item = stringTable[index] }
                 }
                 if let s = String(data: strData, encoding: String.Encoding.utf8), s.count > 0 {
-                    MachOData.shared.nominalOffsetMap[Int(section.offset)+start] = s
+                    MachOData.shared.nominalOffsetMap.setDeterministically(
+                        s, forKey: Int(section.offset) + start)
                 }
                 while index < stringTable.count, stringTable[index] != 0, strData.count >= 256 { index += 1 }
                 if index < stringTable.count { index += 1 }
@@ -643,9 +711,17 @@ extension Section {
 
     private static func accessorProperty(from name: String) -> String? {
         guard name.contains("getter") || name.contains("setter") || name.contains("modify") || name.contains("read") else { return nil }
-        let parts = name.split(separator: ".")
+        let declaration = name.split(separator: ":", maxSplits: 1).first.map(String.init) ?? name
+        let parts = declaration.split(separator: ".")
         guard parts.count >= 2 else { return nil }
         return String(parts[parts.count - 2])
+    }
+
+    private static func accessorOwner(from name: String) -> String? {
+        let declaration = name.split(separator: ":", maxSplits: 1).first.map(String.init) ?? name
+        let parts = declaration.split(separator: ".")
+        guard parts.count >= 3 else { return nil }
+        return parts.dropLast(2).joined(separator: ".")
     }
 
     private static func accessorType(from name: String) -> String? {

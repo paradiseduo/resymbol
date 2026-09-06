@@ -33,7 +33,8 @@ struct ObjcCategory {
     
     func serialization() {
         var key = String(name.name.address.int16()+8, radix: 16, uppercase: false)
-        var externalClassName = fixSymbolName(MachOData.shared.dylbMap[key]) ?? (MachOData.shared.objcClasses[classs.value.int16Replace()] ?? "")
+        let classAddress = MachOData.shared.resolvePointer(classs.value) ?? 0
+        var externalClassName = fixSymbolName(MachOData.shared.dylbMap[key]) ?? (MachOData.shared.objcClasses[classAddress] ?? "")
         if externalClassName == "" {
             key = "00000001" + name.name.address
             externalClassName = fixSymbolName(MachOData.shared.symbolTable[key]?.name()) ?? ""

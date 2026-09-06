@@ -50,11 +50,7 @@ struct Dyld {
                     ConsoleIO.writeMessage("BIND_OPCODE: SET_DYLIB_ORDINAL_ULEB,         libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)", .debug)
                     break
                 case BIND_OPCODE_SET_DYLIB_SPECIAL_IMM:
-                    if immediate == 0 {
-                        libraryOrdinal = 0
-                    } else {
-                        libraryOrdinal = immediate | BIND_OPCODE_MASK
-                    }
+                    libraryOrdinal = decodeSpecialLibraryOrdinal(immediate: immediate)
                     ConsoleIO.writeMessage("BIND_OPCODE: SET_DYLIB_SPECIAL_IMM,          libraryOrdinal = \(libraryOrdinal)  index: \(cccccc)", .debug)
                     break
                 case BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM:
@@ -90,20 +86,20 @@ struct Dyld {
                     break
                 case BIND_OPCODE_DO_BIND:
                     ConsoleIO.writeMessage("BIND_OPCODE: DO_BIND", .debug)
-                    set(address: address, vaule: symbolName)
+                    set(address: address, value: symbolName, libraryOrdinal: libraryOrdinal)
                     bindCount += 1
                     address &+= ptrSize
                     break
                 case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
                     let r = binary.read_uleb128(index: &index, end: end)
                     ConsoleIO.writeMessage("BIND_OPCODE: DO_BIND_ADD_ADDR_ULEB,          \(address) += \(ptrSize) + \(String(format: "%016llx", r))  index: \(cccccc)", .debug)
-                    set(address: address, vaule: symbolName)
+                    set(address: address, value: symbolName, libraryOrdinal: libraryOrdinal)
                     bindCount += 1
                     address &+= (ptrSize &+ r)
                     break
                 case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
                     ConsoleIO.writeMessage("BIND_OPCODE: DO_BIND_ADD_ADDR_IMM_SCALED,    \(address) += \(ptrSize) * \((ptrSize * UInt64(immediate)))  index: \(cccccc)", .debug)
-                    set(address: address, vaule: symbolName)
+                    set(address: address, value: symbolName, libraryOrdinal: libraryOrdinal)
                     bindCount += 1
                     address &+= (ptrSize &+ (ptrSize * UInt64(immediate)))
                     break
@@ -112,7 +108,7 @@ struct Dyld {
                     let skip = binary.read_uleb128(index: &index, end: end)
                     ConsoleIO.writeMessage("BIND_OPCODE: DO_BIND_ULEB_TIMES_SKIPPING_ULEB, count: \(String(format: "%016llx", count)), skip: \(String(format: "%016llx", skip))  index: \(cccccc)", .debug)
                     for _ in 0 ..< count {
-                        set(address: address, vaule: symbolName)
+                        set(address: address, value: symbolName, libraryOrdinal: libraryOrdinal)
                         address &+= (ptrSize &+ skip)
                     }
                     bindCount += count
@@ -125,11 +121,18 @@ struct Dyld {
         }
     }
     
-    private static func set(address: UInt64, vaule newValue: String) {
-        var add = address
-        if address > RVA {
-            add = address - RVA
-        }
-        MachOData.shared.dylbMap[String(add, radix: 16, uppercase: false)] = newValue
+    static func decodeSpecialLibraryOrdinal(immediate: Int32) -> Int32 {
+        guard immediate != 0 else { return 0 }
+        return Int32(Int8(bitPattern: UInt8(truncatingIfNeeded: immediate | 0xf0)))
+    }
+
+    private static func set(address: UInt64, value newValue: String, libraryOrdinal: Int32) {
+        let add = MachOData.shared.addressResolver()?.imageOffset(forVMAddress: address)
+            ?? (address > RVA ? address - RVA : address)
+        MachOData.shared.recordBoundSymbol(
+            key: String(add, radix: 16, uppercase: false),
+            name: newValue,
+            libraryOrdinal: Int(libraryOrdinal)
+        )
     }
 }

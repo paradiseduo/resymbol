@@ -81,6 +81,77 @@ struct SwiftStoredProperty {
     }
 }
 
+func recoveredPropertyWrapper(_ record: FieldRecord, fieldType: String?, accessorType: String?) -> String? {
+    guard let fieldType else { return nil }
+    let rawName = record.fieldName.swiftName.value
+    guard rawName.hasPrefix("_"), !rawName.hasPrefix("$__lazy_storage_$_") else { return nil }
+    let propertyName = String(rawName.dropFirst())
+    guard !propertyName.isEmpty, fieldType.contains("<"), fieldType.hasSuffix(">") else { return nil }
+    let wrapper = fieldType.split(separator: "<", maxSplits: 1).first.map(String.init) ?? ""
+    guard !wrapper.isEmpty, wrapper != "Swift.Array", wrapper != "Swift.Optional" else { return nil }
+    let wrappedType: String
+    if let accessorType, !accessorType.isEmpty {
+        wrappedType = accessorType
+    } else if wrapper == "Clamped", let start = fieldType.firstIndex(of: "<"),
+              fieldType.hasSuffix(">") {
+        // Clamped's single generic argument is also its wrappedValue type;
+        // use it only for this known wrapper when accessor indexing was
+        // stripped from the binary.
+        wrappedType = String(fieldType[fieldType.index(after: start)..<fieldType.index(before: fieldType.endIndex)])
+    } else {
+        return nil
+    }
+    return "@\(wrapper) var \(propertyName): \(wrappedType)"
+}
+
+/// Resolve a field-record type through the same evidence chain used by class
+/// and struct output. Returning nil keeps an unresolved Release-only field
+/// honest instead of printing pointer bytes as a source type.
+func resolvedSwiftFieldType(_ record: FieldRecord, accessorType: String? = nil,
+                            genericNames: [String] = []) -> String? {
+    if let accessorType, !accessorType.isEmpty {
+        let value = sanitizeRecoveredType(accessorType)
+        if !value.isEmpty { return value }
+    }
+    var raw = record.mangledTypeName.swiftName.value
+    if raw.count == 1, let scalar = raw.unicodeScalars.first,
+       scalar.value >= 65, scalar.value < 65 + UInt32(genericNames.count) {
+        raw = genericNames[Int(scalar.value - 65)]
+    }
+    if !genericNames.isEmpty {
+        raw = replaceGenericTokens(raw, names: genericNames)
+    }
+    guard !raw.isEmpty, raw != None else { return nil }
+    if raw.hasPrefix("0x") {
+        let value = sanitizeRecoveredType(fixMangledTypeName(record.mangledTypeName.swiftName))
+        return value.isEmpty ? nil : value
+    }
+    let value = sanitizeRecoveredType(SwiftTypeReferenceParser.parse(raw).description)
+    return value.isEmpty ? nil : value
+}
+
+private func replaceGenericTokens(_ value: String, names: [String]) -> String {
+    var result = ""
+    let chars = Array(value)
+    for index in chars.indices {
+        let character = chars[index]
+        guard let scalar = character.unicodeScalars.first,
+              scalar.value >= 65, scalar.value < 65 + UInt32(names.count) else {
+            result.append(character)
+            continue
+        }
+        let previous = index > chars.startIndex ? chars[index - 1] : " "
+        let next = index + 1 < chars.endIndex ? chars[index + 1] : " "
+        let boundary: (Character) -> Bool = { !$0.isLetter && !$0.isNumber && $0 != "_" }
+        if boundary(previous) && boundary(next) {
+            result += names[Int(scalar.value - 65)]
+        } else {
+            result.append(character)
+        }
+    }
+    return result
+}
+
 struct FieldDescriptor {
     let fieldDescriptor: DataStruct
     let mangledTypeName: SwiftName
@@ -92,8 +163,7 @@ struct FieldDescriptor {
     
     static func FD(_ binary: Data, offset: Int) -> FieldDescriptor {
         let fieldDescriptor = DataStruct.data(binary, offset: offset, length: 4)
-        let newOffset = MachOData.shared.resolveRelativePointer(base: offset, raw: fieldDescriptor.value)
-            ?? (offset + fieldDescriptor.value.int16Subtraction())
+        let newOffset = MachOData.shared.resolveRelativePointer(base: offset, raw: fieldDescriptor.value) ?? binary.count
         
         let mangledTypeName = SwiftName.SN(binary, offset: newOffset, isMangledName: false, isClassName: false)
         let superclass = DataStruct.data(binary, offset: newOffset+4, length: 4)

@@ -13,7 +13,7 @@ struct InstanceVariableName {
     
     static func instanceVariableName(_ binary: Data, offset: Int) -> InstanceVariableName {
         let name = DataStruct.data(binary, offset: offset, length: 8)
-        let nameOffset = MachOData.shared.resolvePointer(name.value) ?? name.value.int16Replace()
+        let nameOffset = MachOData.shared.resolvePointerWithLegacyFallback(name.value) ?? -1
         let instanceVariableName = DataStruct.textData(binary, offset: nameOffset)
         return InstanceVariableName(name: name, instanceVariableName: instanceVariableName)
     }
@@ -25,7 +25,7 @@ struct InstanceVariableTypes {
     
     static func instanceVariableTypes(_ binary: Data, offset: Int) -> InstanceVariableTypes {
         let types = DataStruct.data(binary, offset: offset, length: 8)
-        let typeOffset = MachOData.shared.resolvePointer(types.value) ?? types.value.int16Replace()
+        let typeOffset = MachOData.shared.resolvePointerWithLegacyFallback(types.value) ?? -1
         let instanceVariableTypes = DataStruct.textData(binary, offset: typeOffset)
         return InstanceVariableTypes(types: types, instanceVariableTypes: instanceVariableTypes)
     }
@@ -70,11 +70,15 @@ struct InstanceVariables {
     
     static func instances(_ binary: Data, startOffset: Int) -> InstanceVariables {
         let ivars = DataStruct.data(binary, offset: startOffset, length: 8)
-        let offSetIV = ivars.value.int16Replace()
+        let offSetIV = MachOData.shared.resolvePointerWithLegacyFallback(ivars.value) ?? -1
         if offSetIV > 0 {
             let elementSize = DataStruct.data(binary, offset: offSetIV, length: 4)
             let elementCount = DataStruct.data(binary, offset: offSetIV+4, length: 4)
-            let instanceVariables = InstanceVariable.instances(binary, startOffset: offSetIV+8, count: elementCount.value.int16())
+            let count = boundedObjCRecordCount(elementCount.value,
+                                               startOffset: offSetIV + 8,
+                                               stride: 32,
+                                               dataCount: binary.count)
+            let instanceVariables = InstanceVariable.instances(binary, startOffset: offSetIV+8, count: count)
             return InstanceVariables(ivars: ivars, elementSize: elementSize, elementCount: elementCount, instanceVariables: instanceVariables)
         } else {
             return InstanceVariables(ivars: ivars, elementSize: nil, elementCount: nil, instanceVariables: nil)

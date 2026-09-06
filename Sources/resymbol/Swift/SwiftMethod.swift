@@ -14,8 +14,8 @@ struct SwiftMethodImpl {
     static func SMI(_ binary: Data, offset: inout Int) -> SwiftMethodImpl {
         let impl = DataStruct.data(binary, offset: offset, length: 4)
         let target = MachOData.shared.resolveRelativePointer(base: offset, raw: impl.value)
-            ?? (offset + impl.value.int16Subtraction())
-        let implOffset = DataStruct.data(binary, offset: target.alignment(), length: 4)
+        let targetOffset = target.map { $0 & ~3 } ?? binary.count
+        let implOffset = DataStruct.data(binary, offset: targetOffset, length: 4)
         offset += 4
         return SwiftMethodImpl(impl: impl, implOffset: implOffset)
     }
@@ -53,8 +53,9 @@ struct OverrideMethod {
     
     static func OM(_ binary: Data, offset: inout Int) -> OverrideMethod {
         let overrideOffset = DataStruct.data(binary, offset: offset, length: 4)
-        var newOffset = (MachOData.shared.resolveRelativePointer(base: offset, raw: overrideOffset.value)
-                         ?? (offset + overrideOffset.value.int16Subtraction())).alignment()
+        var newOffset = (MachOData.shared.resolveRelativePointer(base: offset,
+                                                                  raw: overrideOffset.value)
+                         ?? binary.count) & ~3
         offset += 4
         let overrideMethod = SwiftMethod.SM(binary, offset: &newOffset)
         return OverrideMethod(overrideOffset: overrideOffset, overrideMethod: overrideMethod)

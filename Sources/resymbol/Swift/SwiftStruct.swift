@@ -11,35 +11,56 @@ struct SwiftStruct {
     let type: SwiftType
     let numFields: DataStruct
     let fieldOffsetVectorOffset: DataStruct
+    let genericSignature: SwiftGenericSignature?
     
     static func SS(_ binary: Data, offset: Int, flags: SwiftFlags) -> SwiftStruct {
         let type = SwiftType.ST(binary, offset: offset, flags: flags)
         let numFields = DataStruct.data(binary, offset: offset+16, length: 4)
         let fieldOffsetVectorOffset = DataStruct.data(binary, offset: offset+20, length: 4)
-        return SwiftStruct(type: type, numFields: numFields, fieldOffsetVectorOffset: fieldOffsetVectorOffset)
+        let genericSignature = flags.isGeneric ? SwiftGenericSignature.parse(binary, offset: offset + 24) : nil
+        return SwiftStruct(type: type, numFields: numFields, fieldOffsetVectorOffset: fieldOffsetVectorOffset, genericSignature: genericSignature)
     }
     
     func serialization() {
-        var result = "\(type.flags.kind.description) \(type.name.swiftName.value) {\n"
+        guard type.hasUsableName else { return }
+        var result = "\(type.flags.kind.description) \(type.qualifiedName)"
+        let genericNames = genericSignature?.parameterNames(owner: type.name.swiftName.value,
+                                                            fields: type.fieldDescriptor.fieldRecords) ?? []
+        if let genericSignature {
+            result += genericSignature.declaration(owner: type.name.swiftName.value,
+                                                   fields: type.fieldDescriptor.fieldRecords)
+        }
+        result += " {\n"
         for item in type.fieldDescriptor.fieldRecords {
             let property = SwiftStoredProperty.from(item)
             let front = property.declaration
             let fieldName = property.name
-            let accessorType = MachOData.shared.accessorTypes[fieldName]
-            if item.mangledTypeName.swiftName.value.starts(with: "0x") {
-                let fix = fixMangledTypeName(item.mangledTypeName.swiftName)
-                if fix.count > 0 {
-                    result += "    \(front) \(fieldName): \(accessorType ?? fix)\n"
+            guard isUsableSwiftMemberName(fieldName) else { continue }
+            let qualifiedAccessorKey = "\(type.qualifiedName)|\(fieldName)"
+            let accessorName = fieldName.hasPrefix("_") ? String(fieldName.dropFirst()) : fieldName
+            let accessorType = [MachOData.shared.accessorTypes[qualifiedAccessorKey],
+                                MachOData.shared.accessorTypes["\(type.qualifiedName)|\(accessorName)"],
+                                MachOData.shared.accessorTypes[fieldName],
+                                MachOData.shared.accessorTypes[accessorName]]
+                .compactMap { $0 }
+                .first { !$0.isEmpty }
+            if let fieldType = resolvedSwiftFieldType(item, accessorType: accessorType,
+                                                      genericNames: genericNames) {
+                if let wrapper = recoveredPropertyWrapper(item, fieldType: fieldType,
+                                                          accessorType: accessorType) {
+                    result += "    \(wrapper)\n"
                 } else {
-                    result += "    \(front) \(item.fieldName.swiftName.value)\n"
+                    result += "    \(front) \(fieldName): \(fieldType)\n"
                 }
             } else {
-                if item.mangledTypeName.swiftName.value != None {
-                    let rawType = accessorType ?? item.mangledTypeName.swiftName.value
-                    result += "    \(front) \(fieldName): \(accessorType ?? SwiftTypeReferenceParser.parse(rawType).description)\n"
-                } else {
-                    result += "    \(front) \(item.fieldName.swiftName.value)\n"
-                }
+                result += "    \(front) \(fieldName)\n"
+            }
+        }
+        let methods = MachOData.shared.swiftMethodNames(owner: type.qualifiedName)
+        if !methods.isEmpty {
+            result += "\n"
+            for method in methods {
+                result += "    \(normalizeGenericPlaceholders(method, names: genericNames))\n"
             }
         }
         result += "}\n"

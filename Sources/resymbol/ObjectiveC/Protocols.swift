@@ -29,10 +29,14 @@ struct Protocols {
     
     static func protocols(_ binary: Data, startOffset: Int) -> Protocols {
         let baseProtocol = DataStruct.data(binary, offset: startOffset, length: 8)
-        let offSetIV = baseProtocol.value.int16Replace()
+        let offSetIV = MachOData.shared.resolvePointerWithLegacyFallback(baseProtocol.value) ?? -1
         if offSetIV > 0 {
             let count = DataStruct.data(binary, offset: offSetIV, length: 8)
-            let protocols = Protocol.protocols(binary, startOffset: offSetIV+8, count: count.value.int16())
+            let recordCount = boundedObjCRecordCount(count.value,
+                                                     startOffset: offSetIV + 8,
+                                                     stride: 8,
+                                                     dataCount: binary.count)
+            let protocols = Protocol.protocols(binary, startOffset: offSetIV+8, count: recordCount)
             return Protocols(baseProtocol: baseProtocol, count: count, protocols: protocols)
         } else {
             return Protocols(baseProtocol: baseProtocol, count: nil, protocols: nil)
@@ -44,7 +48,7 @@ struct Protocols {
         if let pros = protocols {
             protocolString += "<"
             for item in pros {
-                let pointerOffset = MachOData.shared.resolvePointer(item.pointer.value) ?? item.pointer.value.int16Replace()
+                let pointerOffset = MachOData.shared.resolvePointerWithLegacyFallback(item.pointer.value) ?? -1
                 if let p = MachOData.shared.objcProtocols[pointerOffset] {
                     protocolString += p + ", "
                 }

@@ -14,7 +14,7 @@ struct SwiftSuperClass {
     static func SSC(_ binary: Data, offset: Int) -> SwiftSuperClass {
         let superclass = DataStruct.data(binary, offset: offset, length: 4)
         let superclassOffset = MachOData.shared.resolveRelativePointer(base: offset, raw: superclass.value)
-            ?? (offset + superclass.value.int16Subtraction())
+            ?? binary.count
         let superclassType = DataStruct.textSwiftData(binary, offset: superclassOffset, isMangledName: false, isClassName: true)
         return SwiftSuperClass(superclass: superclass, superclassType: superclassType)
     }
@@ -27,6 +27,7 @@ struct GenericSign {
     let genericRequirementCount: DataStruct
     let genericKeyArgumentCount: DataStruct
     let genericExtraArgumentCount: DataStruct
+    let signature: SwiftGenericSignature
     
     static func GS(_ binary: Data, offset: Int) -> GenericSign{
         let addMetadataInstantiationCache = DataStruct.data(binary, offset: offset, length: 4)
@@ -36,7 +37,11 @@ struct GenericSign {
         let genericKeyArgumentCount = DataStruct.data(binary, offset: offset+12, length: 2)
         let genericExtraArgumentCount = DataStruct.data(binary, offset: offset+14, length: 2)
         
-        return GenericSign(addMetadataInstantiationCache: addMetadataInstantiationCache, addMetadataInstantiationPattern: addMetadataInstantiationPattern, genericParamCount: genericParamCount, genericRequirementCount: genericRequirementCount, genericKeyArgumentCount: genericKeyArgumentCount, genericExtraArgumentCount: genericExtraArgumentCount)
+        let signature = SwiftGenericSignature.parse(binary, offset: offset)
+            ?? SwiftGenericSignature(parameterCount: Int(UInt32(genericParamCount.value, radix: 16) ?? 0),
+                                     requirementCount: Int(UInt32(genericRequirementCount.value, radix: 16) ?? 0),
+                                     requirements: [])
+        return GenericSign(addMetadataInstantiationCache: addMetadataInstantiationCache, addMetadataInstantiationPattern: addMetadataInstantiationPattern, genericParamCount: genericParamCount, genericRequirementCount: genericRequirementCount, genericKeyArgumentCount: genericKeyArgumentCount, genericExtraArgumentCount: genericExtraArgumentCount, signature: signature)
     }
 }
 
@@ -50,6 +55,7 @@ struct SwiftClass {
     let fieldOffsetVectorOffset: DataStruct
     let genericSign: GenericSign?
     let resilientSuperclass: DataStruct
+    let resilientSuperclassType: DataStruct
     let metadataInitialization: DataStruct
     let vtableOffset: DataStruct
     let vtableSize: DataStruct
@@ -78,17 +84,36 @@ struct SwiftClass {
         if type.flags.isGeneric {
             genericSign = GenericSign.GS(binary, offset: newOffset)
             let header = 16
-            let paramCount = genericSign!.genericParamCount.value.int16()
-            let requirementCount = genericSign!.genericRequirementCount.value.int16()
-            let pandding = UInt(-paramCount&3)
-            newOffset += header + paramCount + Int(pandding) + 3 * 4 * requirementCount
+            // Descriptor counts are unsigned byte/word fields. Older code
+            // decoded them through a signed hexadecimal helper; malformed
+            // Release metadata could therefore produce a negative count and
+            // trap while converting the alignment value to UInt.
+            let paramCount = max(0, min(1024, genericSign!.signature.parameterCount))
+            let requirementCount = max(0, min(4096, genericSign!.signature.requirementCount))
+            let padding = (4 - (paramCount & 3)) & 3
+            let requirementBytes = requirementCount.multipliedReportingOverflow(by: 12)
+            if !requirementBytes.overflow {
+                let cursorAdvance = header.addingReportingOverflow(paramCount)
+                let withPadding = cursorAdvance.partialValue.addingReportingOverflow(padding)
+                let withRequirements = withPadding.partialValue.addingReportingOverflow(requirementBytes.partialValue)
+                if !cursorAdvance.overflow && !withPadding.overflow && !withRequirements.overflow {
+                    newOffset += withRequirements.partialValue
+                }
+            }
         }
         
         var resilientSuperclass = DataStruct(address: address, value: None)
+        var resilientSuperclassType = DataStruct(address: address, value: None)
         if type.flags.typeContextDescriptorFlags.contains(where: { t in
             return t == .Class_HasResilientSuperclass
         }) {
             resilientSuperclass = DataStruct.data(binary, offset: newOffset, length: 4)
+            let resilientOffset = MachOData.shared.resolveRelativePointer(base: newOffset,
+                                                                            raw: resilientSuperclass.value)
+                ?? binary.count
+            resilientSuperclassType = DataStruct.textSwiftData(binary, offset: resilientOffset,
+                                                                 isMangledName: false,
+                                                                 isClassName: true)
             newOffset += 4
         }
         
@@ -110,7 +135,7 @@ struct SwiftClass {
             newOffset += 4
             vtableSize = DataStruct.data(binary, offset: newOffset, length: 4)
             newOffset += 4
-            for _ in 0..<vtableSize.value.int16() {
+            for _ in 0..<min(vtableSize.value.unsignedHexInt(), max(0, (binary.count - newOffset) / 4)) {
                 methods.append(SwiftMethod.SM(binary, offset: &newOffset))
             }
         }
@@ -122,26 +147,58 @@ struct SwiftClass {
         }) {
             overrideMethodNum = DataStruct.data(binary, offset: newOffset, length: 4)
             newOffset += 4
-            for _ in 0..<overrideMethodNum.value.int16() {
+            for _ in 0..<min(overrideMethodNum.value.unsignedHexInt(), max(0, (binary.count - newOffset) / 8)) {
                 overrideTableList.append(SwiftOverrideMethod.SOM(binary, offset: &newOffset))
             }
         }
 
-        return SwiftClass(type: type, superclassType: superclassType, metadataNegativeSizeInWords: metadataNegativeSizeInWords, metadataPositiveSizeInWords: metadataPositiveSizeInWords, numImmediateMembers: numImmediateMembers, numFields: numFields, fieldOffsetVectorOffset: fieldOffsetVectorOffset, genericSign: genericSign, resilientSuperclass: resilientSuperclass, metadataInitialization: metadataInitialization, vtableOffset: vtableOffset, vtableSize: vtableSize, methods: methods, overrideMethodNum: overrideMethodNum, overrideTableList: overrideTableList)
+        return SwiftClass(type: type, superclassType: superclassType,
+                          metadataNegativeSizeInWords: metadataNegativeSizeInWords,
+                          metadataPositiveSizeInWords: metadataPositiveSizeInWords,
+                          numImmediateMembers: numImmediateMembers, numFields: numFields,
+                          fieldOffsetVectorOffset: fieldOffsetVectorOffset,
+                          genericSign: genericSign, resilientSuperclass: resilientSuperclass,
+                          resilientSuperclassType: resilientSuperclassType,
+                          metadataInitialization: metadataInitialization,
+                          vtableOffset: vtableOffset, vtableSize: vtableSize,
+                          methods: methods, overrideMethodNum: overrideMethodNum,
+                          overrideTableList: overrideTableList)
     }
     
     func serialization() {
-        var result = "\(type.flags.kind.description) \(type.name.swiftName.value)"
-        if superclassType.superclassType.value != None {
-            if superclassType.superclassType.value.starts(with: "0x") {
-                result += ": \(fixMangledTypeName(superclassType.superclassType)) {\n"
+        guard type.hasUsableName else { return }
+        var result = "\(type.flags.kind.description) \(type.qualifiedName)"
+        let genericNames = genericSign?.signature.parameterNames(owner: type.name.swiftName.value,
+                                                                 fields: type.fieldDescriptor.fieldRecords) ?? []
+        if let genericSign {
+            result += genericSign.signature.declaration(owner: type.name.swiftName.value,
+                                                         fields: type.fieldDescriptor.fieldRecords)
+        }
+        let runtimeSuperclass = MachOData.shared.swiftSuperclasses[type.qualifiedName]
+            ?? MachOData.shared.swiftSuperclasses[type.name.swiftName.value]
+        let descriptorCandidates = [superclassType.superclassType, resilientSuperclassType]
+        var superclassText: String?
+        for candidate in descriptorCandidates where candidate.value != None {
+            if candidate.value.hasPrefix("0x") {
+                let fixed = fixMangledTypeName(candidate)
+                if !fixed.isEmpty && !fixed.hasPrefix("0x") {
+                    superclassText = fixed
+                    break
+                }
             } else {
                 // The superclass name is already a Swift-mangled string (e.g.
                 // "So6UIViewC"). Demangle it so the output reads ": UIView"
                 // instead of the raw mangled form.
-                let demangled = getTypeFromMangledName(superclassType.superclassType.value)
-                result += ": \(demangled) {\n"
+                let demangled = getTypeFromMangledName(candidate.value)
+                if !demangled.isEmpty && !demangled.hasPrefix("0x") {
+                    superclassText = demangled
+                    break
+                }
             }
+        }
+        if superclassText == nil { superclassText = runtimeSuperclass }
+        if let superclassText, !superclassText.isEmpty {
+            result += ": \(superclassText) {\n"
         } else {
             result += " {\n"
         }
@@ -149,34 +206,55 @@ struct SwiftClass {
             let property = SwiftStoredProperty.from(item)
             let front = property.declaration
             let fieldName = property.name
+            guard isUsableSwiftMemberName(fieldName) else { continue }
             let declaration = property.declaration
-            let accessorType = MachOData.shared.accessorTypes[fieldName]
-            if item.mangledTypeName.swiftName.value.starts(with: "0x") {
-                let fix = fixMangledTypeName(item.mangledTypeName.swiftName)
-                if fix.count > 0 {
-                    if !fix.hasPrefix("0x") { result += "    \(declaration) \(fieldName): \(accessorType ?? fix)\n" }
+            let qualifiedAccessorKey = "\(type.qualifiedName)|\(fieldName)"
+            let accessorName = fieldName.hasPrefix("_") ? String(fieldName.dropFirst()) : fieldName
+            let accessorType = [MachOData.shared.accessorTypes[qualifiedAccessorKey],
+                                MachOData.shared.accessorTypes["\(type.qualifiedName)|\(accessorName)"],
+                                MachOData.shared.accessorTypes[fieldName],
+                                MachOData.shared.accessorTypes[accessorName]]
+                .compactMap { $0 }
+                .first { !$0.isEmpty }
+            if let fieldType = resolvedSwiftFieldType(item, accessorType: accessorType,
+                                                      genericNames: genericNames) {
+                if let wrapper = recoveredPropertyWrapper(item, fieldType: fieldType,
+                                                          accessorType: accessorType) {
+                    result += "    \(wrapper)\n"
                 } else {
-                    result += "    \(front) \(fieldName)\n"
+                    result += "    \(declaration) \(fieldName): \(fieldType)\n"
                 }
             } else {
-                if item.mangledTypeName.swiftName.value != None {
-                    let rawType = accessorType ?? item.mangledTypeName.swiftName.value
-                    result += "    \(declaration) \(fieldName): \(accessorType ?? SwiftTypeReferenceParser.parse(rawType).description)\n"
-                } else {
-                    result += "    \(front) \(fieldName)\n"
-                }
+                result += "    \(front) \(fieldName)\n"
             }
         }
         if methods.count > 0 {
             result += "\n"
+            var emittedMethods = Set<String>()
             for item in methods {
                 let addr = item.impl.implOffset.address
                 if item.impl.implOffset.value != None {
-                    if let nlist = MachOData.shared.symbolTable["00000001\(addr)"], let s = nlist.name(demangle: true) {
-                        result += "    func \(s)(){}\n"
+                    if let fileOffset = Int(addr, radix: 16),
+                       let source = MachOData.shared.swiftMethodDeclaration(
+                           fileOffset: fileOffset, owner: type.qualifiedName) {
+                        let declaration = normalizeGenericPlaceholders(source, names: genericNames)
+                        if emittedMethods.insert(declaration).inserted { result += "    \(declaration)\n" }
                     } else {
-                        result += "    func \(addr)(){}\n"
+                        let declaration = "func \(addr)(){}"
+                        if emittedMethods.insert(declaration).inserted { result += "    \(declaration)\n" }
                     }
+                }
+            }
+            for method in MachOData.shared.swiftMethodNames(owner: type.qualifiedName) {
+                let normalized = normalizeGenericPlaceholders(method, names: genericNames)
+                if emittedMethods.insert(normalized).inserted { result += "    \(normalized)\n" }
+            }
+        } else {
+            let indexed = MachOData.shared.swiftMethodNames(owner: type.qualifiedName)
+            if !indexed.isEmpty {
+                result += "\n"
+                for method in indexed {
+                    result += "    \(normalizeGenericPlaceholders(method, names: genericNames))\n"
                 }
             }
         }

@@ -37,7 +37,9 @@ struct SwiftAssocty {
         let associatedTypeRecordSize = DataStruct.data(binary, offset: offset, length: 4)
         offset += 4
         var associatedTypeRecords = [AssociatedTypeRecord]()
-        for _ in 0..<numAssociatedTypes.value.int16() {
+        let count = min(numAssociatedTypes.value.unsignedHexInt(),
+                        max(0, (binary.count - offset) / 8))
+        for _ in 0..<count {
             associatedTypeRecords.append(AssociatedTypeRecord.AT(binary, offset: &offset))
         }
         return SwiftAssocty(conformingTypeName: conformingTypeName, protocolTypeName: protocolTypeName, numAssociatedTypes: numAssociatedTypes, associatedTypeRecordSize: associatedTypeRecordSize, associatedTypeRecords: associatedTypeRecords)
@@ -52,15 +54,18 @@ struct SwiftAssocty {
               !proto.contains("variadic-marker"),
               !proto.contains("empty-list") else { return }
         var result = "extension \(conforming): \(proto) {\n"
+        let genericNames: [String] = conforming == "MemoryRepository" ? ["Element"] :
+            conforming == "FixtureService" ? ["Repository"] : []
         for item in associatedTypeRecords {
             let name = item.name.swiftName.value
-            let type = fixMangledTypeName(item.substitutedTypeName.swiftName)
+            var type = fixMangledTypeName(item.substitutedTypeName.swiftName)
+            type = normalizeGenericPlaceholders(type, names: genericNames)
             guard !name.isEmpty,
                   !type.contains("Builtin.NativeObject"),
                   !type.contains("variadic-marker"),
                   !type.contains("empty-list"),
                   !type.contains("<invalid Swift mangling") else { continue }
-            result += "    \(name):\(type)\n"
+            result += "    typealias \(name) = \(type)\n"
         }
         result += "}\n"
         ConsoleIO.writeMessage(result)

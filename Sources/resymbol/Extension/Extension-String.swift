@@ -47,16 +47,18 @@ extension String {
         self = String(data: data[stringOffset..<(stringOffset + length)], encoding: .utf8)!.trimmingCharacters(in: .controlCharacters)
     }
     
-    func int16Replace() -> Int {
-        let value = (UInt64(self, radix: 16) ?? 0) & ~RVA
-        return Int(truncatingIfNeeded: value)
-    }
-    
     func int16() -> Int {
         if hasPrefix("ff") {
             return int16Subtraction()
         }
         return Int(self, radix: 16) ?? 0
+    }
+
+    /// Decode an unsigned hexadecimal field used for ABI counts. Do not use
+    /// `int16()` here: that helper intentionally sign-extends relative
+    /// pointers and turns high-bit metadata into negative values.
+    func unsignedHexInt() -> Int {
+        Int(UInt32(self, radix: 16) ?? 0)
     }
     
     func int16Subtraction() -> Int {

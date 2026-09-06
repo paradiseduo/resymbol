@@ -165,7 +165,9 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             let toIdx: Int = i + 5 // 4 bytes
             guard toIdx <= data.count else { return dataStruct.value }
             let subData = data[fromIdx..<toIdx]
-            let address = subData.rawValueBig().int16Subtraction() + startAddress + fromIdx
+            let fieldOffset = startAddress.addingReportingOverflow(fromIdx).overflow ? -1 : startAddress + fromIdx
+            let address = MachOData.shared.resolveRelativePointer(base: fieldOffset,
+                                                                    raw: subData.rawValueBig()) ?? -1
             guard address >= 0, address < MachOData.shared.binary.count else {
                 i += 5
                 continue
@@ -202,19 +204,23 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             let fromIdx: Int = i + 1 // ignore 0x02
             let toIdx: Int = i + 5 // 4-byte relative offset
             guard toIdx <= data.count else { return dataStruct.value }
-            
             let subData = data[fromIdx..<toIdx]
-            let address = subData.rawValueBig().int16Subtraction() + startAddress + fromIdx
+            let fieldOffset = startAddress.addingReportingOverflow(fromIdx).overflow ? -1 : startAddress + fromIdx
+            let address = MachOData.shared.resolveRelativePointer(base: fieldOffset,
+                                                                    raw: subData.rawValueBig()) ?? -1
             guard address >= 0, address <= MachOData.shared.binary.count - 4 else {
                 i = toIdx + 1
                 continue
             }
             let newDataStruct = DataStruct.data(MachOData.shared.binary, offset: address, length: 4)
-            // The indirect relative offset is based at the 4-byte reference
-            // itself, not at the byte after it.
-            let indirectTarget = address + newDataStruct.value.int16Subtraction()
+            let indirectTarget = MachOData.shared.resolveRelativePointer(base: address,
+                                                                           raw: newDataStruct.value) ?? -1
             var result = ""
             if let s = MachOData.shared.mangledNameMap[dataStruct.value] {
+                result = s
+            } else if let s = MachOData.shared.nominalOffsetMap[indirectTarget] {
+                result = s
+            } else if let s = MachOData.shared.dylbMap[String(indirectTarget, radix: 16, uppercase: false)] {
                 result = s
             } else if let s = MachOData.shared.nominalOffsetMap[newDataStruct.value.int16()] {
                 result = s
@@ -256,7 +262,7 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
         return mangledName.replacingOccurrences(of: "_pSgXw", with: "?")
     }
     if mangledName == "" {
-        return dataStruct.value
+        return ""
     }
     let result: String = getTypeFromMangledName(mangledName)
     if (result == mangledName) {
@@ -270,7 +276,19 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             }
         }
     }
-    return result
+    return sanitizeRecoveredType(result)
+}
+
+/// Reject values produced by unresolved relative pointers or by scanning
+/// arbitrary bytes as if they were Swift type metadata.
+func sanitizeRecoveredType(_ value: String) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty || trimmed == None || trimmed.hasPrefix("0x") ||
+        trimmed.contains("first-element-marker") ||
+        trimmed.contains("nominal type descriptor") {
+        return ""
+    }
+    return trimmed
 }
 
 func makeDemangledTypeName(_ type: String, header: String) -> String {

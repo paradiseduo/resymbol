@@ -13,7 +13,8 @@ struct Flags {
     
     static func flags(_ binary: Data, startOffset: Int) -> Flags {
         let flags = DataStruct.data(binary, offset: startOffset, length: 4)
-        let ro = RO.ro(flags.value.int16())
+        let raw = UInt64(flags.value, radix: 16).flatMap { Int(exactly: $0) } ?? 0
+        let ro = RO.ro(raw)
         return Flags(flags: flags, ro: ro)
     }
 }

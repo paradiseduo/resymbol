@@ -14,16 +14,30 @@ enum ExportTrie {
     private static let stubAndResolverFlag: UInt64 = 0x10
 
     static func parse(_ data: Data, offset: Int, size: Int) -> [Export] {
-        guard offset >= 0, size >= 0, offset <= data.count,
-              size <= data.count - offset else { return [] }
-        let end = offset + size
         var exports = [Export]()
+        forEachExport(data, offset: offset, size: size) { exports.append($0) }
+        return exports
+    }
+
+    /// Traverse without retaining every export. Symbol-table writing uses
+    /// this path so a large existing export trie does not create a second
+    /// full symbol inventory in memory.
+    static func forEachExport(_ data: Data, offset: Int, size: Int,
+                              body: (Export) -> Void) {
+        guard offset >= 0, size >= 0, offset <= data.count,
+              size <= data.count - offset else { return }
+        let end = offset + size
         var stack: [(node: Int, prefix: String)] = [(offset, "")]
-        var visited = Set<NodeKey>()
+        // A valid export trie is a tree, but malformed binaries can contain
+        // cycles or aliases. Deduplicate by node offset so a changing prefix
+        // cannot turn one bad cycle into unbounded memory growth.
+        var visited = Set<Int>()
+        let maxNodes = max(1, size)
 
         while let current = stack.popLast() {
-            let key = NodeKey(offset: current.node, prefix: current.prefix)
-            guard current.node >= offset, current.node < end, visited.insert(key).inserted else { continue }
+            guard visited.count < maxNodes,
+                  current.node >= offset, current.node < end,
+                  visited.insert(current.node).inserted else { continue }
             var cursor = current.node
             guard let terminalSize = readULEB(data, cursor: &cursor, end: end),
                   terminalSize <= UInt64(end - cursor) else { continue }
@@ -33,16 +47,16 @@ enum ExportTrie {
                 if flags & reexportFlag != 0 {
                     guard let ordinal = readULEB(data, cursor: &cursor, end: terminalEnd),
                           let imported = readCString(data, cursor: &cursor, end: terminalEnd) else { continue }
-                    exports.append(Export(name: current.prefix, flags: flags, address: nil,
-                                          resolver: nil, reexportOrdinal: ordinal,
-                                          importedName: imported.isEmpty ? current.prefix : imported))
+                    body(Export(name: current.prefix, flags: flags, address: nil,
+                                resolver: nil, reexportOrdinal: ordinal,
+                                importedName: imported.isEmpty ? current.prefix : imported))
                 } else if let address = readULEB(data, cursor: &cursor, end: terminalEnd) {
                     var resolver: UInt64?
                     if flags & stubAndResolverFlag != 0 {
                         resolver = readULEB(data, cursor: &cursor, end: terminalEnd)
                     }
-                    exports.append(Export(name: current.prefix, flags: flags, address: address,
-                                          resolver: resolver, reexportOrdinal: nil, importedName: nil))
+                    body(Export(name: current.prefix, flags: flags, address: address,
+                                resolver: resolver, reexportOrdinal: nil, importedName: nil))
                 }
             }
 
@@ -54,10 +68,14 @@ enum ExportTrie {
                 guard let edge = readCString(data, cursor: &cursor, end: end),
                       let childOffset = readULEB(data, cursor: &cursor, end: end),
                       childOffset < UInt64(size) else { break }
-                stack.append((offset + Int(childOffset), current.prefix + edge))
+                let nextPrefix = current.prefix + edge
+                // Prefixes are encoded in the trie payload, so a prefix
+                // longer than the payload cannot be a useful symbol name and
+                // is a strong indication of a corrupt cycle.
+                guard nextPrefix.utf8.count <= size else { continue }
+                stack.append((offset + Int(childOffset), nextPrefix))
             }
         }
-        return exports
     }
 
     static func apply(_ data: Data, commandOffset: Int) {
@@ -73,7 +91,13 @@ enum ExportTrie {
         }
     }
 
-    private struct NodeKey: Hashable { let offset: Int; let prefix: String }
+    static func apply(_ data: Data, command: MachOLoadCommand) {
+        guard case .linkeditData(let payload) = command.payload else { return }
+        for item in parse(data, offset: Int(payload.dataoff), size: Int(payload.datasize)) {
+            if let address = item.address { MachOData.shared.dylbMap[String(address, radix: 16)] = item.name }
+            if let resolver = item.resolver { MachOData.shared.dylbMap[String(resolver, radix: 16)] = item.name }
+        }
+    }
 
     private static func readULEB(_ data: Data, cursor: inout Int, end: Int) -> UInt64? {
         var result: UInt64 = 0

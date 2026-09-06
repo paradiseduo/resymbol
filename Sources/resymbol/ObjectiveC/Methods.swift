@@ -7,13 +7,24 @@
 
 import Foundation
 
+/// Decode an Objective-C metadata record count without allowing malformed or
+/// stripped data to turn it into a negative/unbounded loop.  Counts are
+/// unsigned in the 64-bit runtime ABI; the file range is the final authority.
+func boundedObjCRecordCount(_ raw: String, startOffset: Int, stride: Int,
+                            dataCount: Int) -> Int {
+    guard stride > 0, startOffset >= 0, startOffset <= dataCount,
+          let declared = UInt64(raw, radix: 16) else { return 0 }
+    let available = UInt64((dataCount - startOffset) / stride)
+    return Int(min(declared, available, UInt64(Int.max)))
+}
+
 struct MethodName {
     let name: DataStruct
     let methodName: DataStruct
     
     static func methodName(_ binary: Data, offset: Int) -> MethodName {
         let name = DataStruct.data(binary, offset: offset, length: 8)
-        let methodNameOffset = MachOData.shared.resolvePointer(name.value) ?? name.value.int16Replace()
+        let methodNameOffset = MachOData.shared.resolvePointerWithLegacyFallback(name.value) ?? -1
         let methodName = DataStruct.textData(binary, offset: methodNameOffset)
         return MethodName(name: name, methodName: methodName)
     }
@@ -29,7 +40,7 @@ struct MethodTypes {
         if hasExtendedMethodTypes {
             methodTypes = DataStruct.textData(binary, offset: typeOffSet)
         } else {
-            let typeOffset = MachOData.shared.resolvePointer(types.value) ?? types.value.int16Replace()
+            let typeOffset = MachOData.shared.resolvePointerWithLegacyFallback(types.value) ?? -1
             methodTypes = DataStruct.textData(binary, offset: typeOffset)
         }
         return MethodTypes(types: types, methodTypes: methodTypes)
@@ -49,7 +60,7 @@ struct Method {
             let name = MethodName.methodName(binary, offset: offSet)
             offSet += 8
             if hasExtendedMethodTypes {
-                start = DataStruct.data(binary, offset: typeOffSet, length: 8).value.int16Replace()
+                start = MachOData.shared.resolvePointerWithLegacyFallback(DataStruct.data(binary, offset: typeOffSet, length: 8).value) ?? 0
                 typeOffSet += 8
             }
             let types = MethodTypes.methodTypes(binary, offset: offSet, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: start)
@@ -70,20 +81,24 @@ struct Method {
         for _ in 0..<count {
             guard offset >= 0, offset <= binary.count - 12 else { break }
             let nameRelative = DataStruct.data(binary, offset: offset, length: 4)
-            let nameReference = offset + nameRelative.value.int16Subtraction()
+            // ObjC method metadata stores a signed field-relative offset.
+            let nameReference = MachOData.shared.resolveRelativePointer(base: offset, raw: nameRelative.value)
+                ?? -1
             let nameOffset: Int
             if directSelectors {
                 nameOffset = nameReference
             } else {
-                nameOffset = DataStruct.data(binary, offset: nameReference, length: 8).value.int16Replace()
+                nameOffset = MachOData.shared.resolvePointerWithLegacyFallback(DataStruct.data(binary, offset: nameReference, length: 8).value) ?? -1
             }
             let methodName = MethodName(name: nameRelative,
                                         methodName: DataStruct.textData(binary, offset: nameOffset))
 
             let typesRelative = DataStruct.data(binary, offset: offset + 4, length: 4)
-            var typesOffset = offset + 4 + typesRelative.value.int16Subtraction()
+            // The type reference uses the address of its own 32-bit field.
+            var typesOffset = MachOData.shared.resolveRelativePointer(base: offset + 4, raw: typesRelative.value)
+                ?? -1
             if hasExtendedMethodTypes {
-                typesOffset = DataStruct.data(binary, offset: typeOffSet, length: 8).value.int16Replace()
+                typesOffset = MachOData.shared.resolvePointerWithLegacyFallback(DataStruct.data(binary, offset: typeOffSet, length: 8).value) ?? -1
                 typeOffSet += 8
             }
             let methodTypes = MethodTypes(types: typesRelative,
@@ -178,17 +193,18 @@ struct Methods {
     
     static func methods(_ binary: Data, startOffset: Int, hasExtendedMethodTypes: Bool = false, typeOffSet: inout Int) -> Methods {
         let baseMethod = DataStruct.data(binary, offset: startOffset, length: 8)
-        let offSetMD = baseMethod.value.int16Replace()
+        let offSetMD = MachOData.shared.resolvePointerWithLegacyFallback(baseMethod.value) ?? -1
         if offSetMD > 0 {
             let elementSize = DataStruct.data(binary, offset: offSetMD, length: 4)
             let elementCount = DataStruct.data(binary, offset: offSetMD+4, length: 4)
-            let header = UInt32(elementSize.value.int16())
+            let header = UInt32(elementSize.value, radix: 16) ?? 0
             let isRelative = header & 0x8000_0000 != 0
             let directSelectors = header & 0x4000_0000 != 0
             let entrySize = isRelative ? 12 : 24
-            let declaredCount = elementCount.value.int16()
-            let availableCount = offSetMD + 8 <= binary.count ? (binary.count - offSetMD - 8) / entrySize : 0
-            let count = min(declaredCount, availableCount)
+            let count = boundedObjCRecordCount(elementCount.value,
+                                               startOffset: offSetMD + 8,
+                                               stride: entrySize,
+                                               dataCount: binary.count)
             let methods: [Method]
             if isRelative {
                 methods = Method.relativeMethods(binary, startOffset: offSetMD+8, count: count,

@@ -40,9 +40,9 @@ struct SwiftCapture {
     let captureTypeRecords: [CaptureTypeRecord]
     let metadataSourceRecords: [MetadataSourceRecord]
     
-    static func SC(_ binary: Data, offset: inout Int, section: section_64) -> SwiftCapture {
+    static func SC(_ binary: Data, offset: inout Int, sectionAddress: UInt64, sectionOffset: UInt32) -> SwiftCapture {
         let descriptorOffset = offset
-        let descriptorAddress = section.addr + UInt64(descriptorOffset - Int(section.offset))
+        let descriptorAddress = sectionAddress + UInt64(descriptorOffset - Int(sectionOffset))
         let numCaptureTypes = DataStruct.data(binary, offset: offset, length: 4)
         offset += 4
         let numMetadataSources = DataStruct.data(binary, offset: offset, length: 4)

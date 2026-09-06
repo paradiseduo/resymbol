@@ -29,7 +29,8 @@ struct DataStruct {
         }
     }
 
-    static func textData(_ binary: Data, offset: Int, demangle: Bool = false) -> DataStruct {
+    static func textData(_ binary: Data, offset: Int, demangle: Bool = false,
+                         maxBytes: Int = 256) -> DataStruct {
         // 如果上来就是空的，说明没有这个东西
         if offset < 0 || offset >= binary.count || binary[offset] == 0 {
             return DataStruct(address: offset.string16(), value: None)
@@ -37,7 +38,8 @@ struct DataStruct {
         var start = offset
         var strData = Data()
         var scanned = 0
-        while start < binary.count, scanned < 256 {
+        guard maxBytes > 0 else { return DataStruct(address: offset.string16(), value: None) }
+        while start < binary.count, scanned < maxBytes {
             let item = binary[start]
             if item != 0 {
                 strData.append(item)

@@ -31,12 +31,10 @@ struct ObjcClass {
         let reserved1 = DataStruct.data(binary, offset: offset+40, length: 8)
         let reserved2 = DataStruct.data(binary, offset: offset+48, length: 8)
         let reserved3 = DataStruct.data(binary, offset: offset+56, length: 8)
-        let isSwiftClass = (classData.value.int16Replace()&0x1 != 0)
-        
-        var offsetCD = classData.value.int16Replace()
-        if offsetCD % 4 != 0 {
-            offsetCD -= offsetCD%4
-        }
+        let rawClassData = UInt64(classData.value, radix: 16) ?? 0
+        let isSwiftClass = rawClassData & 0x1 != 0
+        let classDataPointer = rawClassData & ~UInt64(0x7)
+        let offsetCD = MachOData.shared.resolvePointer(classDataPointer) ?? 0
         
         var classRO: ObjcClassRO?
         if offsetCD > 0 {
@@ -109,5 +107,4 @@ struct ObjcClassRO {
         return ObjcClassRO(flags: flags, instanceStart: instanceStart, instanceSize: instanceSize, reserved: reserved, ivarlayout: ivarlayout, name: name, baseMethod: baseMethod, baseProtocol: baseProtocol, ivars: ivars, weakIvarLayout: weakIvarLayout, baseProperties: baseProperties)
     }
 }
-
 

@@ -30,9 +30,11 @@ struct ObjcProtocol {
         let flag = DataStruct.data(binary, offset: offset+68, length: 4)
         
         // 这里判断是否具有附加属性
-        let hasExtendedMethodTypes = size.value.int16() > (8 * MemoryLayout<UInt64>.size + 2 * MemoryLayout<UInt32>.size)
+        let protocolSize = UInt64(size.value, radix: 16) ?? 0
+        let hasExtendedMethodTypes = protocolSize > UInt64(8 * MemoryLayout<UInt64>.size + 2 * MemoryLayout<UInt32>.size)
         let extendedMethodTypes = MethodTypes.methodTypes(binary, offset: offset+72)
-        var typeOffset = extendedMethodTypes.types.value.int16Replace()
+        var typeOffset = MachOData.shared.resolvePointerWithLegacyFallback(extendedMethodTypes.types.value)
+            ?? offset + 72
         
         // 先判断附加属性再生产method的数组，不然要生成两边，浪费时间
         let instanceMethods = Methods.methods(binary, startOffset: offset+24, hasExtendedMethodTypes: hasExtendedMethodTypes, typeOffSet: &typeOffset)

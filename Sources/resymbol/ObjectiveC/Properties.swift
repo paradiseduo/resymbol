@@ -13,7 +13,8 @@ struct PropertyName {
     
     static func propertyName(_ binary: Data, offset: Int) -> PropertyName {
         let name = DataStruct.data(binary, offset: offset, length: 8)
-        let propertyName = DataStruct.textData(binary, offset: name.value.int16Replace())
+        let target = MachOData.shared.resolvePointerWithLegacyFallback(name.value) ?? -1
+        let propertyName = DataStruct.textData(binary, offset: target)
         return PropertyName(name: name, propertyName: propertyName)
     }
 }
@@ -24,7 +25,8 @@ struct PropertyAttributes {
     
     static func propertyName(_ binary: Data, offset: Int) -> PropertyAttributes {
         let attributes = DataStruct.data(binary, offset: offset, length: 8)
-        let propertyAttributes = DataStruct.textData(binary, offset: attributes.value.int16Replace())
+        let target = MachOData.shared.resolvePointerWithLegacyFallback(attributes.value) ?? -1
+        let propertyAttributes = DataStruct.textData(binary, offset: target)
         return PropertyAttributes(attributes: attributes, propertyAttributes: propertyAttributes)
     }
 }
@@ -115,11 +117,15 @@ struct Properties {
     
     static func properties(_ binary: Data, startOffset: Int) -> Properties {
         let baseProperties = DataStruct.data(binary, offset: startOffset, length: 8)
-        let offSetIV = baseProperties.value.int16Replace()
+        let offSetIV = MachOData.shared.resolvePointerWithLegacyFallback(baseProperties.value) ?? -1
         if offSetIV > 0 {
             let elementSize = DataStruct.data(binary, offset: offSetIV, length: 4)
             let elementCount = DataStruct.data(binary, offset: offSetIV+4, length: 4)
-            let properties = Property.properties(binary, startOffset: offSetIV+8, count: elementCount.value.int16())
+            let count = boundedObjCRecordCount(elementCount.value,
+                                               startOffset: offSetIV + 8,
+                                               stride: 16,
+                                               dataCount: binary.count)
+            let properties = Property.properties(binary, startOffset: offSetIV+8, count: count)
             return Properties(baseProperties: baseProperties, elementSize: elementSize, elementCount: elementCount, properties: properties)
         } else {
             return Properties(baseProperties: baseProperties, elementSize: nil, elementCount: nil, properties: nil)
