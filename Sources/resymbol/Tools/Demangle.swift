@@ -199,17 +199,36 @@ func strictSwiftDemangle(_ candidate: String) -> String? {
 
 
 func fixOptionalTypeName(_ typeName: String) -> String {
-    if typeName.contains("Optional") {
-        var result = typeName.replacingOccurrences(of: "Swift.Optional", with: "").replacingOccurrences(of: "Optional", with: "")
-        if let s = result.firstIndex(of: "<") {
-            result.remove(at: s)
-            if let e = result.lastIndex(of: ">") {
-                result.remove(at: e)
+    var result = typeName
+    // Demangled Optional can be nested inside another generic, for example
+    // `Dictionary<Int, Optional<String>>`. Only remove the balanced
+    // `Optional<...>` wrapper; deleting the first `<`/last `>` corrupts the
+    // enclosing generic spelling.
+    while let optionalStart = result.range(of: "Swift.Optional<") ??
+            result.range(of: "Optional<") {
+        let open = result.index(before: optionalStart.upperBound)
+        var depth = 0
+        var cursor = open
+        var close: String.Index?
+        while cursor < result.endIndex {
+            if result[cursor] == "<" {
+                depth += 1
+            } else if result[cursor] == ">" {
+                depth -= 1
+                if depth == 0 {
+                    close = cursor
+                    break
+                }
             }
+            cursor = result.index(after: cursor)
         }
-        return result + "?"
+        guard let close else { break }
+        let innerStart = result.index(after: open)
+        let inner = String(result[innerStart..<close])
+        let replacement = inner + "?"
+        result.replaceSubrange(optionalStart.lowerBound...close, with: replacement)
     }
-    return typeName
+    return result
 }
 
 func fixMangledTypeName(_ dataStruct: DataStruct) -> String {

@@ -1032,7 +1032,15 @@ private func parseABITypeToken(_ value: String, start: String.Index,
             return (parsed.name, value.index(start, offsetBy: parsed.end))
         }
     }
-    if suffix.hasPrefix("Si") { return ("Int", value.index(start, offsetBy: 2)) }
+    if suffix.hasPrefix("Si") {
+        var end = value.index(start, offsetBy: 2)
+        var type = "Int"
+        if value[end...].hasPrefix("Sg") {
+            type += "?"
+            end = value.index(end, offsetBy: 2)
+        }
+        return (type, end)
+    }
     if suffix.hasPrefix("SS") {
         var type = "String"
         var end = value.index(start, offsetBy: 2)
@@ -1052,13 +1060,49 @@ private func parseABITypeToken(_ value: String, start: String.Index,
         return (type, end)
     }
     if suffix.hasPrefix("Never") {
-        return ("Never", value.index(start, offsetBy: 5))
+        var end = value.index(start, offsetBy: 5)
+        var type = "Never"
+        if value[end...].hasPrefix("Sg") {
+            type += "?"
+            end = value.index(end, offsetBy: 2)
+        }
+        return (type, end)
     }
-    if suffix.hasPrefix("Sd") { return ("Double", value.index(start, offsetBy: 2)) }
-    if suffix.hasPrefix("Sf") { return ("Float", value.index(start, offsetBy: 2)) }
-    if suffix.hasPrefix("Su") { return ("UInt", value.index(start, offsetBy: 2)) }
+    if suffix.hasPrefix("Sd") {
+        var end = value.index(start, offsetBy: 2)
+        var type = "Double"
+        if value[end...].hasPrefix("Sg") {
+            type += "?"
+            end = value.index(end, offsetBy: 2)
+        }
+        return (type, end)
+    }
+    if suffix.hasPrefix("Sf") {
+        var end = value.index(start, offsetBy: 2)
+        var type = "Float"
+        if value[end...].hasPrefix("Sg") {
+            type += "?"
+            end = value.index(end, offsetBy: 2)
+        }
+        return (type, end)
+    }
+    if suffix.hasPrefix("Su") {
+        var end = value.index(start, offsetBy: 2)
+        var type = "UInt"
+        if value[end...].hasPrefix("Sg") {
+            type += "?"
+            end = value.index(end, offsetBy: 2)
+        }
+        return (type, end)
+    }
     if suffix.hasPrefix("SO") {
-        return ("ObjectIdentifier", value.index(start, offsetBy: 2))
+        var end = value.index(start, offsetBy: 2)
+        var type = "ObjectIdentifier"
+        if value[end...].hasPrefix("Sg") {
+            type += "?"
+            end = value.index(end, offsetBy: 2)
+        }
+        return (type, end)
     }
     if suffix.hasPrefix("yp") {
         return ("Any", value.index(start, offsetBy: 2))
@@ -1120,7 +1164,13 @@ private func parseSourceFacingTypeToken(_ value: String, start: String.Index)
     guard let name = names.sorted(by: { $0.count > $1.count }).first(where: { suffix.hasPrefix($0) }) else {
         return nil
     }
-    return (name, value.index(start, offsetBy: name.count))
+    var end = value.index(start, offsetBy: name.count)
+    var type = name
+    if value[end...].hasPrefix("Sg") {
+        type += "?"
+        end = value.index(end, offsetBy: 2)
+    }
+    return (type, end)
 }
 
 /// Replace complete `SDy`/`Say`/`Shy` fragments that sit inside already
