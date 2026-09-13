@@ -32,7 +32,18 @@ enum ChainedFixups {
                 let process: (UInt16) -> Void = { chainStart in
                     let pageOffset = UInt64(page) * UInt64(pageSize) + UInt64(chainStart)
                     guard let location = resolver.chainedFixupLocation(segmentOffset: segmentOffset, pageOffset: pageOffset) else { return }
-                    walk(&output, original: input, fileOffset: location.fileOffset, vmAddress: location.vmAddress, format: format, resolver: resolver, imports: imports)
+                    if format == 14 {
+                        // Segmented chains use 4-byte slots. Their rebases are
+                        // already segment-relative and cannot be replaced with
+                        // an 8-byte VM address without changing the file
+                        // layout, so validate and walk them without rewriting.
+                        walkSegmented(&output, original: input,
+                                      fileOffset: location.fileOffset,
+                                      vmAddress: location.vmAddress,
+                                      resolver: resolver)
+                    } else {
+                        walk(&output, original: input, fileOffset: location.fileOffset, vmAddress: location.vmAddress, format: format, resolver: resolver, imports: imports)
+                    }
                 }
                 if start & 0x8000 == 0 { process(start) }
                 else {
@@ -72,6 +83,30 @@ enum ChainedFixups {
     static func decode(_ raw: UInt64, format: UInt16,
                        resolver: MachOAddressResolver) -> (target: UInt64?, ordinal: Int?, next: Int, stride: Int) {
         switch format {
+        case 13:
+            // Shared-cache rebases encode a 34-bit runtime offset. Both
+            // authenticated and unauthenticated entries use an 8-byte stride;
+            // the image base is the only address domain available to a thin
+            // Mach-O parsed outside its shared-cache mapping.
+            let next = Int((raw >> 51) & 0x7ff)
+            let target = raw & 0x3fff_fffff
+            return (resolver.chainedRebaseTarget(target, domain: .imageRelative),
+                    nil, next, 8)
+        case 14:
+            // Segmented entries occupy two 32-bit words while advancing by a
+            // 4-byte chain stride. The low word carries the target segment
+            // index/offset; the high word carries authentication and `next`.
+            let targetBits = UInt32(truncatingIfNeeded: raw)
+            let flags = UInt32(truncatingIfNeeded: raw >> 32)
+            let segmentIndex = Int((targetBits >> 28) & 0x0f)
+            let next = Int((flags >> 19) & 0x0fff)
+            guard segmentIndex < resolver.file.segments.count else {
+                return (nil, nil, next, 4)
+            }
+            let targetOffset = UInt64(targetBits & 0x0fff_ffff)
+            let target = resolver.file.segments[segmentIndex].vmaddr
+                &+ targetOffset
+            return (target, nil, next, 4)
         case 1, 7, 9, 10, 12:
             let next = Int((raw >> 51) & 0x7ff)
             let stride = (format == 7 || format == 10) ? 4 : 8
@@ -97,6 +132,27 @@ enum ChainedFixups {
             let domain: MachOAddressDomain = format == 6 ? .imageRelative : .absoluteVM
             return (resolver.chainedRebaseTarget(target, high8: high8, domain: domain), nil, next, 4)
         default: return (nil, nil, 0, 4)
+        }
+    }
+
+    private static func walkSegmented(_ output: inout Data, original: Data,
+                                      fileOffset: Int, vmAddress: UInt64,
+                                      resolver: MachOAddressResolver) {
+        var file = fileOffset
+        var vm = vmAddress
+        var remaining = original.count / 4 + 1
+        while remaining > 0, file >= 0, file <= original.count - 8,
+              let raw: UInt64 = original.integer(at: file) {
+            let value = decode(raw, format: 14, resolver: resolver)
+            guard value.target != nil else { break }
+            guard value.next != 0 else { break }
+            let delta = value.next * value.stride
+            let (nextFile, fileOverflow) = file.addingReportingOverflow(delta)
+            let (nextVM, vmOverflow) = vm.addingReportingOverflow(UInt64(delta))
+            guard !fileOverflow, !vmOverflow else { break }
+            file = nextFile
+            vm = nextVM
+            remaining -= 1
         }
     }
 

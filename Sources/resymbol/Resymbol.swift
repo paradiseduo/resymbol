@@ -9,220 +9,242 @@ import ArgumentParser
 import Foundation
 import MachO
 
-let version = "1.0.0"
+let version = "2.0.0"
 
 struct Resymbol: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "resymbol v\(version)", discussion: "Restore symbol", version: version)
-    
-    @Argument(help: "The machO/IPA to restore symbol.")
+    static let configuration = CommandConfiguration(
+        abstract: "resymbol v\(version)",
+        discussion: "Parse Objective-C/Swift metadata and restore 64-bit Mach-O symbols",
+        version: version)
+
+    @Argument(help: "The 64-bit Mach-O file to parse.")
     var filePath: String
-    
-    @Flag(name: .shortAndLong, help: "If restore symbol ipa, please set this flag. Default false mean is machO file path.")
-    var ipa = false
-    
-    @Flag(name: .shortAndLong, help: "Dump Symbol Table. If used with -c maybe slowly.")
-    var symbol = false
-    
-    @Flag(name: .shortAndLong, help: "Dump Class. If used with -s maybe slowly.")
-    var `class` = false
 
-    @Flag(name: .long, help: "List architectures in a fat/universal Mach-O and exit.")
-    var listArches = false
+    @Flag(name: .long, help: "Parse Objective-C declarations only.")
+    var objc = false
 
-    @Flag(name: .long, help: "List deterministic symbol-restoration candidates and exit.")
-    var candidates = false
+    @Flag(name: .long, help: "Parse Swift declarations only.")
+    var swift = false
 
-    @Flag(name: .long, help: "Show a read-only symbol-restoration plan and exit.")
-    var symbolPlan = false
+    @Option(name: .long, help: "Export recovered symbols as a JSON array to this file.")
+    var json: String?
 
-    @Flag(name: .long, help: "Show the validated nlist/string-table rebuild layout and exit.")
-    var symbolLayout = false
+    @Flag(name: .long, help: "Restore symbols in place; use --restore-output to write a separate Mach-O.")
+    var restoreSymbols = false
 
-    @Flag(name: .long, help: "Show the new-file symbol-table patch plan and exit.")
-    var symbolPatchPlan = false
+    @Option(name: .long, help: "Write restored symbols to this new Mach-O; the input is unchanged and not backed up.")
+    var restoreOutput: String?
 
-    @Option(name: .long, help: "Write a rebuilt symbol table to this new output file.")
-    var writeSymbols: String?
+    @Option(name: .long, help: "Write parsed declarations below this directory instead of stdout.")
+    var outputDir: String?
 
-    @Option(name: .long, help: "Read extra exact symbols from a JSON array of name/address records.")
-    var jsonSymbols: String?
+    @Flag(name: .long, help: "Show progress for directory output and symbol restoration.")
+    var verbose = false
 
-    @Option(name: .long, help: "Architecture to select from a fat/universal Mach-O (default: arm64).")
-    var arch: String?
-    
     mutating func run() throws {
-        if ipa {
-            ConsoleIO.writeMessage("IPA input is not supported yet; extract the arm64 Mach-O first.", .error)
-            running = false
+        guard !(objc && swift) else {
+            throw ValidationError("--objc and --swift are mutually exclusive")
+        }
+        let mode: ResymbolParseMode = objc ? .objectiveC : (swift ? .swift : .both)
+        let restoreRequested = restoreSymbols
+        guard restoreOutput == nil || restoreRequested else {
+            throw ValidationError("--restore-output can only be used with --restore-symbols")
+        }
+        guard let input = try? Data(contentsOf: URL(fileURLWithPath: filePath)) else {
+            throw ValidationError("Mach-O file does not exist or cannot be read: \(filePath)")
+        }
+
+        if MachOFat.isFat(input) {
+            guard let architectures = MachOFat.architectures(in: input),
+                  let selected = MachOFat.select(architectures, name: nil) else {
+                throw ValidationError("Invalid fat/universal Mach-O")
+            }
+            if restoreRequested {
+                throw ValidationError("Symbol restoration requires a thin Mach-O input")
+            }
+            try processThin(Data(selected.data), mode: mode, exportJSON: json,
+                            restore: false, outputDirectory: outputDir,
+                            verbose: verbose)
             return
-        } else {
-            FileManager.open(machoPath: filePath, backup: false) { data in
-                if let binary = data {
-                    if MachOFat.isFat(binary) {
-                        if writeSymbols != nil {
-                            ConsoleIO.writeMessage("Symbol writing currently requires a thin Mach-O input", .error)
-                            running = false
-                            return
-                        }
-                        guard let architectures = MachOFat.architectures(in: binary), !architectures.isEmpty else {
-                            ConsoleIO.writeMessage("Invalid fat/universal Mach-O structure", .error)
-                            running = false
-                            return
-                        }
-                        if listArches {
-                            for architecture in architectures {
-                                print("\(architecture.name) (offset: \(architecture.offset), size: \(architecture.size))")
-                            }
-                            running = false
-                            return
-                        }
-                        guard let selected = MachOFat.select(architectures, name: arch) else {
-                            ConsoleIO.writeMessage("Requested architecture '\(arch ?? "")' was not found", .error)
-                            running = false
-                            return
-                        }
-                        processThin(Data(selected.data))
-                    } else {
-                        processThin(binary)
+        }
+
+        try processThin(input, mode: mode, exportJSON: json,
+                        restore: restoreRequested, outputDirectory: outputDir,
+                        verbose: verbose)
+    }
+
+    private func processThin(_ binary: Data, mode: ResymbolParseMode,
+                             exportJSON: String?, restore: Bool,
+                             outputDirectory: String?, verbose: Bool) throws {
+        guard let file = MachOFile.parse(binary) else {
+            throw ValidationError("Invalid or unsupported Mach-O; only 64-bit images are supported")
+        }
+        if file.isEncrypted {
+            throw ValidationError("Mach-O contains encrypted data (cryptid \(file.encryptionInfo?.cryptid ?? 0))")
+        }
+
+        if restore {
+            try restoreSymbols(binary: binary, file: file, requestedOutput: restoreOutput,
+                               verbose: verbose)
+            return
+        }
+
+        if let exportJSON {
+            guard outputDirectory == nil else {
+                throw ValidationError("--json and --output-dir cannot be combined")
+            }
+            try exportSymbols(binary: binary, file: file, path: exportJSON)
+            return
+        }
+
+        let progress = verbose && outputDirectory != nil ? ProgressDisplay() : nil
+        try SerializationOutput.begin(directory: outputDirectory.map { URL(fileURLWithPath: $0) },
+                                      mode: mode, progress: progress)
+        let header = binary.extract(fat_header.self)
+        BitType.checkType(machoPath: filePath, header: header) { type, isByteSwapped in
+            Section.readSection(binary, type: type, isByteSwapped: isByteSwapped,
+                                mode: mode, progress: progress) { result in
+                if let outputDirectory {
+                    switch SerializationOutput.finish() {
+                    case .success(let count): print("output: \(count) files in \(outputDirectory)")
+                    case .failure(let error): fputs("Error: unable to write output directory: \(error)\n", stderr)
                     }
                 } else {
-                    running = false
+                    _ = SerializationOutput.finish()
                 }
+                progress?.finish(success: result)
+                running = false
             }
         }
     }
 
-    private func processThin(_ binary: Data) {
-                    if candidates || symbolPlan || symbolLayout || symbolPatchPlan || writeSymbols != nil || jsonSymbols != nil {
-                        guard let file = MachOFile.parse(binary) else {
-                            ConsoleIO.writeMessage("Invalid 64-bit Mach-O structure", .error)
-                            running = false
-                            return
-                        }
-                        let dynamic = DynamicSymbolModelParser.parse(binary, machOFile: file)
-                        let externalCandidates: [RecoveredSymbolCandidate]
-                        if let jsonSymbols {
-                            guard let jsonData = try? Data(contentsOf: URL(fileURLWithPath: jsonSymbols)) else {
-                                print("json-symbols: unable to read \(jsonSymbols)")
-                                running = false
-                                return
-                            }
-                            externalCandidates = RecoveredSymbolCandidate.externalJSON(jsonData)
-                        } else {
-                            externalCandidates = []
-                        }
-                        if let writeSymbols {
-                            let sourceURL = URL(fileURLWithPath: filePath).standardizedFileURL
-                            let outputURL = URL(fileURLWithPath: writeSymbols).standardizedFileURL
-                            guard sourceURL != outputURL,
-                                  !FileManager.default.fileExists(atPath: outputURL.path),
-                                  let layout = RecoveredSymbolInventory.writeLayout(data: binary, file: file,
-                                                                                   dynamicSymbols: dynamic,
-                                                                                   externalCandidates: externalCandidates) else {
-                                print("symbol-write: unavailable (output must be a new path)")
-                                running = false
-                                return
-                            }
-                            do {
-                                let rebuilt = try RecoveredSymbolWriter.materialize(data: binary, file: file,
-                                                                                      dynamicSymbols: dynamic,
-                                                                                      layout: layout)
-                                try rebuilt.write(to: outputURL, options: .atomic)
-                                if let attributes = try? FileManager.default.attributesOfItem(atPath: filePath),
-                                   let permissions = attributes[.posixPermissions] {
-                                    try? FileManager.default.setAttributes([.posixPermissions: permissions],
-                                                                            ofItemAtPath: outputURL.path)
-                                }
-                                print("symbol-write: \(outputURL.path)")
-                            } catch {
-                                print("symbol-write: failed (\(error))")
-                            }
-                            running = false
-                            return
-                        }
-                        if symbolPlan {
-                            let plan = RecoveredSymbolInventory.plan(data: binary, file: file,
-                                                                      dynamicSymbols: dynamic,
-                                                                      externalCandidates: externalCandidates)
-                            print("candidates: \(plan.candidates.count)")
-                            print("existing: \(plan.existingCount)")
-                            print("new: \(plan.newCount)")
-                            print("export-only: \(plan.exportOnlyCount)")
-                            print("estimated-string-bytes: \(plan.estimatedStringBytes)")
-                            running = false
-                            return
-                        }
-                        if symbolLayout {
-                            guard let layout = RecoveredSymbolInventory.writeLayout(data: binary, file: file,
-                                                                                    dynamicSymbols: dynamic,
-                                                                                    externalCandidates: externalCandidates) else {
-                                print("symbol-layout: unavailable")
-                                running = false
-                                return
-                            }
-                            print("entries: \(layout.entries.count)")
-                            print("local-range: \(layout.localRange.lowerBound)..<\(layout.localRange.upperBound)")
-                            print("external-range: \(layout.externalDefinedRange.lowerBound)..<\(layout.externalDefinedRange.upperBound)")
-                            print("undefined-range: \(layout.undefinedRange.lowerBound)..<\(layout.undefinedRange.upperBound)")
-                            print("string-bytes: \(layout.stringTable.count)")
-                            print("nlist-bytes: \(layout.serializedNListData(byteSwapped: file.isByteSwapped).count)")
-                            print("requires-dysymtab-rewrite: \(layout.requiresDynamicSymbolTableRewrite)")
-                            running = false
-                            return
-                        }
-                        if symbolPatchPlan {
-                            guard let layout = RecoveredSymbolInventory.writeLayout(data: binary, file: file,
-                                                                                    dynamicSymbols: dynamic,
-                                                                                    externalCandidates: externalCandidates),
-                                  let patch = RecoveredSymbolPatchPlan.make(data: binary, file: file,
-                                                                              layout: layout) else {
-                                print("symbol-patch-plan: unavailable")
-                                running = false
-                                return
-                            }
-                            print("symtab-command-offset: \(patch.symbolTableCommandOffset)")
-                            print("dysymtab-command-offset: \(patch.dynamicSymbolTableCommandOffset ?? -1)")
-                            print("new-symoff: \(patch.symbolTableFileOffset)")
-                            print("new-stroff: \(patch.stringTableFileOffset)")
-                            print("new-nsyms: \(patch.symbolCount)")
-                            print("new-strsize: \(patch.stringTableSize)")
-                            print("output-size: \(patch.outputSize)")
-                            print("requires-dysymtab-rewrite: \(patch.requiresDynamicSymbolTableRewrite)")
-                            running = false
-                            return
-                        }
-                        // Candidate inspection must show the same complete
-                        // inventory that the plan/writer use, including
-                        // address-proven ObjC runtime metadata discoveries.
-                        for candidate in RecoveredSymbolInventory.build(data: binary, file: file,
-                                                                         dynamicSymbols: dynamic,
-                                                                         includeMetadata: true,
-                                                                         externalCandidates: externalCandidates) {
-                            let sources = candidate.sources.map(\.rawValue).sorted().joined(separator: ",")
-                            print(String(format: "0x%016llx %@ [%@] %@",
-                                         candidate.address, candidate.name, sources,
-                                         candidate.confidence == .exact ? "exact" : "inferred"))
-                        }
-                        running = false
-                        return
-                    }
-                    let fh = binary.extract(fat_header.self)
-                    BitType.checkType(machoPath: filePath, header: fh) { type, isByteSwapped in
-                        if symbol {
-                            if `class` {
-                                Section.readSection(binary, type: type, isByteSwapped: isByteSwapped, symbol: symbol) { result in
-                                    running = false
-                                }
-                            } else {
-                                Section.dumpSymbol(binary, type: type, isByteSwapped: isByteSwapped) { result in
-                                    running = false
-                                }
-                            }
-                        } else {
-                            Section.readSection(binary, type: type, isByteSwapped: isByteSwapped) { result in
-                                running = false
-                            }
-                        }
-                    }
+    private struct ExportedSymbol: Encodable {
+        let name: String
+        let address: String
     }
+
+    private func exportSymbols(binary: Data, file: MachOFile, path: String) throws {
+        let dynamic = PerformanceProfile.measure("dynamic-symbol-parse") {
+            DynamicSymbolModelParser.parse(binary, machOFile: file)
+        }
+        let candidates = PerformanceProfile.measure("candidate-discovery") {
+            RecoveredSymbolInventory.build(data: binary, file: file,
+                                           dynamicSymbols: dynamic,
+                                           includeMetadata: true)
+        }
+        let records = candidates.map {
+            ExportedSymbol(name: $0.name, address: String(format: "0x%016llx", $0.address))
+        }
+        let encoder = JSONEncoder()
+        // Candidate ordering is deterministic; sort object keys as well so a
+        // repeated export is byte-stable instead of depending on Dictionary's
+        // randomized encoding order.
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try PerformanceProfile.measureThrowing("json-encode") {
+            try encoder.encode(records)
+        }
+        try PerformanceProfile.measureThrowing("json-write") {
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        }
+        print("json: \(path) (\(records.count) symbols)")
+        running = false
+    }
+
+    private func restoreSymbols(binary: Data, file: MachOFile, requestedOutput: String?,
+                                verbose: Bool) throws {
+        let progress = ProgressDisplay(enabled: verbose)
+        progress.beginPhase("reading symbol model", base: 0.02, span: 0.08)
+        guard let dynamic = PerformanceProfile.measure("dynamic-symbol-parse", {
+            DynamicSymbolModelParser.parse(binary, machOFile: file)
+        }) else {
+            progress.finish(success: false)
+            throw ValidationError("Unable to read a validated dynamic symbol table")
+        }
+        progress.completePhase()
+
+        progress.beginPhase("scanning recovery candidates", base: 0.10, span: 0.55)
+        guard let layout = PerformanceProfile.measure("symbol-layout", {
+            RecoveredSymbolInventory.writeLayout(data: binary, file: file,
+                                                 dynamicSymbols: dynamic)
+        }) else {
+            progress.finish(success: false)
+            throw ValidationError("Unable to build a validated symbol-table layout")
+        }
+        progress.completePhase()
+
+        progress.beginPhase("materializing symbol table", base: 0.65, span: 0.20)
+        let rebuilt: Data
+        do {
+            rebuilt = try PerformanceProfile.measureThrowing("symbol-materialize") {
+                try RecoveredSymbolWriter.materialize(data: binary, file: file,
+                                                      dynamicSymbols: dynamic,
+                                                      layout: layout)
+            }
+        } catch {
+            progress.finish(success: false)
+            throw ValidationError("Unable to materialize restored symbols: \(error)")
+        }
+        progress.completePhase()
+        let inputURL = URL(fileURLWithPath: filePath).standardizedFileURL
+        let outputURL: URL
+        let writesInPlace: Bool
+        if let requested = requestedOutput, !requested.isEmpty {
+            outputURL = URL(fileURLWithPath: requested).standardizedFileURL
+            writesInPlace = false
+        } else {
+            outputURL = inputURL
+            writesInPlace = true
+        }
+        guard writesInPlace || outputURL != inputURL else {
+            progress.finish(success: false)
+            throw ValidationError("--restore-output must name a file different from the input")
+        }
+        guard writesInPlace || !FileManager.default.fileExists(atPath: outputURL.path) else {
+            progress.finish(success: false)
+            throw ValidationError("Output file already exists: \(outputURL.path)")
+        }
+        let sourcePermissions = (try? FileManager.default.attributesOfItem(atPath: inputURL.path))?[.posixPermissions]
+        progress.beginPhase(writesInPlace ? "writing restored Mach-O in place" : "writing restored Mach-O",
+                            base: 0.85, span: 0.15)
+        do {
+            try rebuilt.write(to: outputURL, options: .atomic)
+        } catch {
+            progress.finish(success: false)
+            throw ValidationError("Unable to write restored Mach-O: \(error)")
+        }
+        if let sourcePermissions {
+            try? FileManager.default.setAttributes([.posixPermissions: sourcePermissions],
+                                                    ofItemAtPath: outputURL.path)
+        }
+        // Let Apple's tool remove the stale signature and its load command.
+        // This also truncates the old signature blob and updates mach_header
+        // fields exactly as codesign expects before a new signature is added.
+        let removeSignature = Process()
+        removeSignature.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        removeSignature.arguments = ["--remove-signature", outputURL.path]
+        removeSignature.standardOutput = FileHandle.nullDevice
+        removeSignature.standardError = FileHandle.nullDevice
+        do {
+            try removeSignature.run()
+            removeSignature.waitUntilExit()
+            guard removeSignature.terminationStatus == 0 else {
+                throw ValidationError("Unable to remove stale code signature")
+            }
+        } catch let error as ValidationError {
+            progress.finish(success: false)
+            throw error
+        } catch {
+            progress.finish(success: false)
+            throw ValidationError("Unable to remove stale code signature: \(error)")
+        }
+        if writesInPlace {
+            print("restored in place: \(outputURL.path)")
+        } else {
+            print("restored: \(outputURL.path)")
+        }
+        progress.completePhase()
+        progress.finish()
+        running = false
+    }
+
 }

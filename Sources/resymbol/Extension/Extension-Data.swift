@@ -17,19 +17,19 @@ extension Data {
     }
 
     func extract<T>(_ type: T.Type, offset: Int = 0) -> T {
-        let data = self[offset..<offset + MemoryLayout<T>.size]
-        return data.withUnsafeBytes { dataBytes in
-            dataBytes.baseAddress!.assumingMemoryBound(to: UInt8.self).withMemoryRebound(to: T.self, capacity: 1) { (p) -> T in
-                return p.pointee
-            }
+        let size = MemoryLayout<T>.size
+        precondition(offset >= 0 && offset <= count - size, "read outside Data bounds")
+        return withUnsafeBytes { bytes in
+            bytes.loadUnaligned(fromByteOffset: offset, as: T.self)
         }
     }
     
     func readValue<Type>(_ offset: Int) -> Type? {
-        let val:Type? = withUnsafeBytes { (ptr:UnsafeRawBufferPointer) -> Type? in
-            return ptr.baseAddress?.advanced(by: offset).load(as: Type.self)
+        let size = MemoryLayout<Type>.size
+        guard offset >= 0, offset <= count - size else { return nil }
+        return withUnsafeBytes { bytes in
+            bytes.loadUnaligned(fromByteOffset: offset, as: Type.self)
         }
-        return val
     }
     
     func rawValue() -> String {

@@ -167,29 +167,32 @@ struct SwiftClass {
     
     func serialization() {
         guard type.hasUsableName else { return }
-        var result = "\(type.flags.kind.description) \(type.qualifiedName)"
-        let genericNames = genericSign?.signature.parameterNames(owner: type.name.swiftName.value,
-                                                                 fields: type.fieldDescriptor.fieldRecords) ?? []
+        let qualifiedName = type.qualifiedName
+        var result = "\(type.flags.kind.description) \(qualifiedName)"
+        let genericNames = genericSign?.signature.parameterNames() ?? []
+        var resolvedFieldTypes = [String: String]()
+        var unresolvedFieldTypes = Set<String>()
         if let genericSign {
-            result += genericSign.signature.declaration(owner: type.name.swiftName.value,
-                                                         fields: type.fieldDescriptor.fieldRecords)
+            result += genericSign.signature.declaration()
         }
-        let runtimeSuperclass = MachOData.shared.swiftSuperclasses[type.qualifiedName]
+        let runtimeSuperclass = MachOData.shared.swiftSuperclasses[qualifiedName]
             ?? MachOData.shared.swiftSuperclasses[type.name.swiftName.value]
         let descriptorCandidates = [superclassType.superclassType, resilientSuperclassType]
         var superclassText: String?
         for candidate in descriptorCandidates where candidate.value != None {
             if candidate.value.hasPrefix("0x") {
                 let fixed = fixMangledTypeName(candidate)
-                if !fixed.isEmpty && !fixed.hasPrefix("0x") {
-                    superclassText = fixed
+                let normalized = normalizeRecoveredSwiftType(fixed)
+                if !normalized.isEmpty && !normalized.hasPrefix("0x") {
+                    superclassText = normalized
                     break
                 }
             } else {
                 // The superclass name is already a Swift-mangled string (e.g.
                 // "So6UIViewC"). Demangle it so the output reads ": UIView"
                 // instead of the raw mangled form.
-                let demangled = getTypeFromMangledName(candidate.value)
+                let demangled = normalizeRecoveredSwiftType(
+                    getTypeFromMangledName(candidate.value))
                 if !demangled.isEmpty && !demangled.hasPrefix("0x") {
                     superclassText = demangled
                     break
@@ -208,16 +211,28 @@ struct SwiftClass {
             let fieldName = property.name
             guard isUsableSwiftMemberName(fieldName) else { continue }
             let declaration = property.declaration
-            let qualifiedAccessorKey = "\(type.qualifiedName)|\(fieldName)"
+            let qualifiedAccessorKey = "\(qualifiedName)|\(fieldName)"
             let accessorName = fieldName.hasPrefix("_") ? String(fieldName.dropFirst()) : fieldName
-            let accessorType = [MachOData.shared.accessorTypes[qualifiedAccessorKey],
-                                MachOData.shared.accessorTypes["\(type.qualifiedName)|\(accessorName)"],
-                                MachOData.shared.accessorTypes[fieldName],
-                                MachOData.shared.accessorTypes[accessorName]]
-                .compactMap { $0 }
-                .first { !$0.isEmpty }
-            if let fieldType = resolvedSwiftFieldType(item, accessorType: accessorType,
-                                                      genericNames: genericNames) {
+            let accessorType = MachOData.shared.accessorTypes.firstNonEmpty(for: [
+                qualifiedAccessorKey, "\(qualifiedName)|\(accessorName)", fieldName, accessorName
+            ])
+            let cacheKey = item.mangledTypeName.swiftName.value + "|" + (accessorType ?? "")
+            let fieldType: String?
+            if let cached = resolvedFieldTypes[cacheKey] {
+                fieldType = cached
+            } else if unresolvedFieldTypes.contains(cacheKey) {
+                fieldType = nil
+            } else {
+                let resolved = resolvedSwiftFieldType(item, accessorType: accessorType,
+                                                       genericNames: genericNames,
+                                                       owner: qualifiedName, fieldName: fieldName)
+                if let resolved { resolvedFieldTypes[cacheKey] = resolved }
+                else { unresolvedFieldTypes.insert(cacheKey) }
+                fieldType = resolved
+            }
+            if let fieldType {
+                let normalizedFieldType = normalizeRecoveredSwiftType(fieldType)
+                let fieldType = normalizedFieldType.isEmpty ? fieldType : normalizedFieldType
                 if let wrapper = recoveredPropertyWrapper(item, fieldType: fieldType,
                                                           accessorType: accessorType) {
                     result += "    \(wrapper)\n"
@@ -231,12 +246,15 @@ struct SwiftClass {
         if methods.count > 0 {
             result += "\n"
             var emittedMethods = Set<String>()
+            let methodResolver = MachOData.shared.addressResolver()
             for item in methods {
                 let addr = item.impl.implOffset.address
                 if item.impl.implOffset.value != None {
                     if let fileOffset = Int(addr, radix: 16),
+                       let methodResolver,
                        let source = MachOData.shared.swiftMethodDeclaration(
-                           fileOffset: fileOffset, owner: type.qualifiedName) {
+                           fileOffset: fileOffset, owner: qualifiedName,
+                           resolver: methodResolver) {
                         let declaration = normalizeGenericPlaceholders(source, names: genericNames)
                         if emittedMethods.insert(declaration).inserted { result += "    \(declaration)\n" }
                     } else {
@@ -245,12 +263,12 @@ struct SwiftClass {
                     }
                 }
             }
-            for method in MachOData.shared.swiftMethodNames(owner: type.qualifiedName) {
+            for method in MachOData.shared.swiftMethodNames(owner: qualifiedName) {
                 let normalized = normalizeGenericPlaceholders(method, names: genericNames)
                 if emittedMethods.insert(normalized).inserted { result += "    \(normalized)\n" }
             }
         } else {
-            let indexed = MachOData.shared.swiftMethodNames(owner: type.qualifiedName)
+            let indexed = MachOData.shared.swiftMethodNames(owner: qualifiedName)
             if !indexed.isEmpty {
                 result += "\n"
                 for method in indexed {
@@ -259,6 +277,6 @@ struct SwiftClass {
             }
         }
         result += "}\n"
-        ConsoleIO.writeMessage(result)
+        SerializationOutput.emit(result, kind: .swiftClass, name: qualifiedName)
     }
 }

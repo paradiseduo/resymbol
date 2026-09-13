@@ -97,6 +97,15 @@ extension SyncDictionary where T: Comparable {
 }
 
 extension SyncDictionary where T == String {
+    func firstNonEmpty(for keys: [V]) -> String? {
+        queue.sync {
+            for key in keys {
+                if let value = dictionary[key], !value.isEmpty { return value }
+            }
+            return nil
+        }
+    }
+
     /// Keep an exact value only while every producer agrees. An empty value
     /// marks a collided legacy key so consumers can fall back to address-based
     /// evidence instead of choosing a random type.

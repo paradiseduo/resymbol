@@ -12,10 +12,14 @@ struct SwiftName {
     let name: DataStruct
     let swiftName: DataStruct
     
-    static func SN(_ binary: Data, offset: Int, isMangledName: Bool, isClassName: Bool) -> SwiftName {
+    static func SN(_ binary: Data, offset: Int, isMangledName: Bool, isClassName: Bool,
+                   maxBytes: Int = 256) -> SwiftName {
         let name = DataStruct.data(binary, offset: offset, length: 4)
         let nameOffset = MachOData.shared.resolveRelativePointer(base: offset, raw: name.value) ?? binary.count
-        let swiftName = DataStruct.textSwiftData(binary, offset: nameOffset, isMangledName: isMangledName, isClassName: isClassName)
+        let swiftName = DataStruct.textSwiftData(binary, offset: nameOffset,
+                                                 isMangledName: isMangledName,
+                                                 isClassName: isClassName,
+                                                 maxBytes: maxBytes)
         return SwiftName(name: name, swiftName: swiftName)
     }
 }

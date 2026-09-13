@@ -87,13 +87,19 @@ struct SwiftCapture {
         var result = "block \(label) {\n"
         result += "\t// captureTypeRecords\n"
         for item in captureTypeRecords {
-            result += "\t\(fixMangledTypeName(item.mangledTypeName.swiftName))\n"
+            result += "\t\(readableCaptureType(item.mangledTypeName.swiftName))\n"
         }
         result += "\t// metadataSourceRecords\n"
         for item in metadataSourceRecords {
-            result += "\t\(fixMangledTypeName(item.mangledTypeName.swiftName)): \(fixMangledTypeName(item.mangledMetadataSource.swiftName))\n"
+            result += "\t\(readableCaptureType(item.mangledTypeName.swiftName)): \(readableCaptureType(item.mangledMetadataSource.swiftName))\n"
         }
         result += "}\n"
-        ConsoleIO.writeMessage(result)
+        SerializationOutput.emit(result, kind: .swiftBlock, name: label)
+    }
+
+    private func readableCaptureType(_ raw: DataStruct) -> String {
+        let fixed = fixMangledTypeName(raw)
+        let normalized = normalizeRecoveredSwiftType(fixed)
+        return normalized.isEmpty ? fixed : normalized
     }
 }

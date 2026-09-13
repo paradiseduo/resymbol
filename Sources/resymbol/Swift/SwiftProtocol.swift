@@ -257,9 +257,7 @@ struct ProtocolDescriptor {
             var witnessSignatures = ProtocolRequirementResolver.witnessSignatures(
                 protocolName: name.swiftName.value, qualifiedProtocolName: qualifiedName)
             var exactWitnesses = [Int: [String]]()
-            let conformances = MachOData.shared.swiftProtocolConformances.filter {
-                $0.protocolDescriptorOffset == descriptorOffset
-            }
+            let conformances = MachOData.shared.swiftProtocolConformances(for: descriptorOffset)
             for conformance in conformances {
                 for binding in conformance.witnessBindings {
                     let signatures = binding.exactWitnessSignatures
@@ -396,7 +394,8 @@ struct ProtocolDescriptor {
                 }
             }
             result += "}\n"
-            ConsoleIO.writeMessage(result)
+            SerializationOutput.emit(result, kind: .swiftProtocol,
+                                     name: qualifiedName)
         }
     }
 
@@ -558,7 +557,8 @@ struct SwiftProtocol {
         if let protocolName = MachOData.shared.swiftProtocols[protocolNameOffset] {
             var result = "protocol \(protocolName) {\n"
             result += "}\n"
-            ConsoleIO.writeMessage(result)
+            SerializationOutput.emit(result, kind: .swiftProtocol,
+                                     name: protocolName)
         }
     }
 }

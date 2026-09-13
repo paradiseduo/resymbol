@@ -32,6 +32,11 @@ struct MachOBoundSymbol {
     let libraryName: String?
 }
 
+private struct SwiftIndexedMethod {
+    let owner: String
+    let declaration: String
+}
+
 class MachOData {
     static let shared = MachOData()
     private let serialQueue = DispatchQueue(label: "MachOData.Binary.Queue", attributes: .concurrent)
@@ -39,6 +44,9 @@ class MachOData {
     private var _originalBinary = Data()
     private var _dynamicSymbolTable: MachODynamicSymbolTableModel?
     private var _swiftMethodIndex = [String: [String]]()
+    private var _swiftMethodLookupCache = [String: [String]]()
+    private var _swiftMethodAddressIndex = [UInt64: [SwiftIndexedMethod]]()
+    private var _swiftConformancesByProtocol = [Int: [SwiftProtocolConformance]]()
 
     var binary: Data {
         get {
@@ -74,8 +82,11 @@ class MachOData {
         swiftReflectionStringRange = nil
         dynamicSymbolTable = nil
         serialQueue.sync(flags: .barrier) { _swiftMethodIndex.removeAll(keepingCapacity: false) }
-        objcClasses.removeAllSync(); swiftSuperclasses.removeAllSync(); dylbMap.removeAllSync(); boundSymbols.removeAllSync(); undefinedSymbols.removeAllSync(); objcProtocols.removeAllSync()
-        swiftProtocols.removeAllSync(); stringTable.removeAllSync(); symbolTable.removeAllSync(); accessorTypes.removeAllSync()
+        serialQueue.sync(flags: .barrier) { _swiftMethodLookupCache.removeAll(keepingCapacity: false) }
+        serialQueue.sync(flags: .barrier) { _swiftMethodAddressIndex.removeAll(keepingCapacity: false) }
+        serialQueue.sync(flags: .barrier) { _swiftConformancesByProtocol.removeAll(keepingCapacity: false) }
+        objcClasses.removeAllSync(); objcClassMetadataNames.removeAllSync(); swiftSuperclasses.removeAllSync(); dylbMap.removeAllSync(); boundSymbols.removeAllSync(); undefinedSymbols.removeAllSync(); objcProtocols.removeAllSync()
+        swiftProtocols.removeAllSync(); stringTable.removeAllSync(); symbolTable.removeAllSync(); accessorTypes.removeAllSync(); swiftFieldTypeHints.removeAllSync()
         ProtocolWitnessIndex.shared.reset()
         mangledNameMap.removeAllSync(); nominalOffsetMap.removeAllSync()
         swiftClasses.removeAllSync(); swiftStruct.removeAllSync(); swiftEnum.removeAllSync()
@@ -91,6 +102,7 @@ class MachOData {
     func fileOffset(forVMAddress address: UInt64) -> Int? {
         segments.first { $0.containsVMAddress(address) }?.fileOffset(forVMAddress: address)
     }
+
 
     func addressResolver() -> MachOAddressResolver? {
         guard let machOFile else { return nil }
@@ -110,14 +122,20 @@ class MachOData {
     /// entries are discarded to keep memory bounded on large binaries.
     func buildSwiftMethodIndex() {
         guard let symbols = dynamicSymbolTable?.symbols else { return }
+        let profileStart = DispatchTime.now().uptimeNanoseconds
         var index = [String: Set<String>]()
         var shortOwners = [String: Set<String>]()
+        var addressIndex = [UInt64: [SwiftIndexedMethod]]()
         for symbol in symbols where symbol.scope != .undefined {
             let raw = symbol.name
             guard raw.hasPrefix("_$s") || raw.hasPrefix("$s") else { continue }
             guard let demangled = swift_demangle(raw),
                   let member = Self.swiftMemberDeclaration(from: demangled) else { continue }
             index[member.owner, default: []].insert(member.declaration)
+            if symbol.value != 0 {
+                addressIndex[symbol.value, default: []].append(
+                    SwiftIndexedMethod(owner: member.owner, declaration: member.declaration))
+            }
             if let short = member.owner.split(separator: ".").last.map(String.init) {
                 shortOwners[short, default: []].insert(member.owner)
             }
@@ -129,16 +147,44 @@ class MachOData {
         }
         serialQueue.sync(flags: .barrier) {
             _swiftMethodIndex = index.mapValues { $0.sorted() }
+            _swiftMethodAddressIndex = addressIndex
         }
+        PerformanceProfile.report("swift-method-index", start: profileStart,
+                                  count: index.values.reduce(0) { $0 + $1.count })
     }
 
     func swiftMethodNames(owner: String) -> [String] {
-        serialQueue.sync {
-            if let exact = _swiftMethodIndex[owner] { return exact }
-            let matches = _swiftMethodIndex.filter { key, _ in key.hasSuffix(".\(owner)") }
-            guard matches.count == 1 else { return [] }
-            return matches.first?.value ?? []
+        serialQueue.sync(flags: .barrier) {
+            if let cached = _swiftMethodLookupCache[owner] { return cached }
+            let result: [String]
+            if let exact = _swiftMethodIndex[owner] {
+                result = exact
+            } else {
+                let matches = _swiftMethodIndex.filter { key, _ in key.hasSuffix(".\(owner)") }
+                result = matches.count == 1 ? (matches.first?.value ?? []) : []
+            }
+            _swiftMethodLookupCache[owner] = result
+            return result
         }
+    }
+
+    private func swiftIndexedMethods(at address: UInt64) -> [SwiftIndexedMethod] {
+        serialQueue.sync { _swiftMethodAddressIndex[address] ?? [] }
+    }
+
+    func buildSwiftProtocolConformanceIndex() {
+        let conformances = swiftProtocolConformances.filter { _ in true }
+        var index = [Int: [SwiftProtocolConformance]]()
+        index.reserveCapacity(min(conformances.count, 4096))
+        for conformance in conformances {
+            guard let descriptor = conformance.protocolDescriptorOffset else { continue }
+            index[descriptor, default: []].append(conformance)
+        }
+        serialQueue.sync(flags: .barrier) { _swiftConformancesByProtocol = index }
+    }
+
+    func swiftProtocolConformances(for descriptorOffset: Int) -> [SwiftProtocolConformance] {
+        serialQueue.sync { _swiftConformancesByProtocol[descriptorOffset] ?? [] }
     }
 
     static func swiftMemberDeclaration(from demangled: String) -> (owner: String, declaration: String)? {
@@ -236,20 +282,35 @@ class MachOData {
     /// check matters for thunks and folded functions that can share an
     /// implementation address with another nominal type.
     func swiftMethodDeclaration(fileOffset: Int, owner: String) -> String? {
-        guard fileOffset >= 0, let resolver = addressResolver(),
+        guard let resolver = addressResolver() else { return nil }
+        return swiftMethodDeclaration(fileOffset: fileOffset, owner: owner,
+                                      resolver: resolver)
+    }
+
+    func swiftMethodDeclaration(fileOffset: Int, owner: String,
+                                resolver: MachOAddressResolver) -> String? {
+        guard fileOffset >= 0,
               let vmAddress = resolver.vmAddress(forFileOffset: fileOffset) else { return nil }
         let addresses = [vmAddress,
                          resolver.imageOffset(forVMAddress: vmAddress) ?? 0,
                          UInt64(fileOffset)].filter { $0 != 0 }
+        let normalizedOwner = owner.split(separator: "<", maxSplits: 1).first.map(String.init) ?? owner
         var rawNames = [String]()
         for address in addresses {
+            let indexed = swiftIndexedMethods(at: address)
+            for method in indexed {
+                let memberOwner = method.owner.split(separator: "<", maxSplits: 1).first.map(String.init) ?? method.owner
+                let ownerMatches = memberOwner == normalizedOwner ||
+                    (!normalizedOwner.contains(".") && memberOwner.hasSuffix(".\(normalizedOwner)")) ||
+                    (!memberOwner.contains(".") && normalizedOwner.hasSuffix(".\(memberOwner)"))
+                if ownerMatches { return method.declaration }
+            }
             rawNames.append(contentsOf: symbols(at: address).map(\.name))
             let keys = [String(format: "%016llx", address),
                         String(format: "%08llx", address),
                         String(format: "00000001%08llx", address)]
             rawNames.append(contentsOf: keys.compactMap { symbolTable[$0]?.name() })
         }
-        let normalizedOwner = owner.split(separator: "<", maxSplits: 1).first.map(String.init) ?? owner
         for raw in rawNames where raw.hasPrefix("_$s") || raw.hasPrefix("$s") {
             guard let demangled = swift_demangle(raw),
                   let member = Self.swiftMemberDeclaration(from: demangled) else { continue }
@@ -319,6 +380,13 @@ class MachOData {
     }
     
     var objcClasses = SyncDictionary<Int, String>("ObjcClassesDicSyncQueue")
+    /// Names keyed by file offsets reached from Objective-C/Swift hybrid class
+    /// metadata. Swift symbolic field references may resolve directly to a
+    /// context descriptor instead of the class object or its isa slot.
+    var objcClassMetadataNames = SyncDictionary<Int, String>("ObjcClassMetadataNamesSyncQueue")
+    /// ABI-level field hints recovered from Objective-C metadata for Swift
+    /// classes exposed to ObjC. Keys are qualified and short owners.
+    var swiftFieldTypeHints = SyncDictionary<String, String>("SwiftFieldTypeHintsSyncQueue")
     /// Runtime class metadata can preserve a Swift superclass binding even
     /// when the Swift context descriptor is stripped or malformed.
     var swiftSuperclasses = SyncDictionary<String, String>("SwiftSuperclassDicSyncQueue")
@@ -332,6 +400,20 @@ class MachOData {
     var accessorTypes = SyncDictionary<String, String>("SwiftAccessorTypesSyncQueue")
     var mangledNameMap = SyncDictionary<String, String>("MangledNameMapDicSyncQueue")
     var nominalOffsetMap = SyncDictionary<Int, String>("NominalOffsetMapDicSyncQueue")
+
+    func recordSwiftFieldTypeHint(owner: String, field: String, type: String) {
+        guard !owner.isEmpty, !field.isEmpty, !type.isEmpty else { return }
+        swiftFieldTypeHints.setIfUnambiguous(type, forKey: "\(owner)|\(field)")
+        if let short = owner.split(separator: ".").last.map(String.init) {
+            swiftFieldTypeHints.setIfUnambiguous(type, forKey: "\(short)|\(field)")
+        }
+    }
+
+    func swiftFieldTypeHint(owner: String, field: String) -> String? {
+        let short = owner.split(separator: ".").last.map(String.init) ?? owner
+        return swiftFieldTypeHints["\(owner)|\(field)"]
+            ?? swiftFieldTypeHints["\(short)|\(field)"]
+    }
     
     var swiftClasses = SyncArray<SwiftClass>("SwiftClassesArraySyncQueue")
     var swiftStruct = SyncArray<SwiftStruct>("SwiftStructArraySyncQueue")

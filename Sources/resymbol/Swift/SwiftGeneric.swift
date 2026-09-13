@@ -50,60 +50,18 @@ struct SwiftGenericSignature {
                                      requirements: requirements)
     }
 
-    /// Source names are not stored in a generic context descriptor. These
-    /// names are conservative, stable guesses based on common Swift spelling
-    /// and are replaced in field types and requirements consistently.
-    func parameterNames(owner: String, fields: [FieldRecord]) -> [String] {
-        let known: [String: [String]] = [
-            "Clamped": ["Value"],
-            "MemoryRepository": ["Element"],
-            "FixtureService": ["Repository"],
-            "SyntaxSugarFixture": ["Container"],
-            "GenericResult": ["Value", "Failure"]
-        ]
-        if let names = known[owner], names.count >= parameterCount {
-            return Array(names.prefix(parameterCount))
-        }
-        var names = (0..<parameterCount).map { index in
+    /// Generic context descriptors retain parameter positions, but not their
+    /// source-level names. Use stable positional placeholders and never infer
+    /// semantic names from the owning type or its fields.
+    func parameterNames() -> [String] {
+        (0..<parameterCount).map { index in
             index < 26 ? String(UnicodeScalar(65 + index)!) : "T\(index)"
         }
-        // A field whose type is a generic placeholder provides useful semantic
-        // evidence even when the enclosing type is not one of the known
-        // fixtures above.
-        for field in fields {
-            let raw = field.mangledTypeName.swiftName.value
-            guard raw.count == 1, let scalar = raw.unicodeScalars.first,
-                  scalar.value >= 65, scalar.value < 65 + UInt32(parameterCount) else { continue }
-            let index = Int(scalar.value - 65)
-            let fieldName = field.fieldName.swiftName.value
-            if !fieldName.isEmpty, fieldName != None {
-                let candidate = fieldName == "repository" ? "Repository" :
-                    fieldName == "container" ? "Container" :
-                    fieldName == "value" ? "Value" :
-                    fieldName == "valuesStorage" ? "Element" : nil
-                if let candidate { names[index] = candidate }
-            }
-        }
-        return names
     }
 
-    func declaration(owner: String, fields: [FieldRecord]) -> String {
+    func declaration() -> String {
         guard parameterCount > 0 else { return "" }
-        let names = parameterNames(owner: owner, fields: fields)
-        let knownConstraints: [String: [Int: String]] = [
-            "Clamped": [0: "Comparable"],
-            "MemoryRepository": [:],
-            "FixtureService": [0: "FixtureRepository"],
-            "SyntaxSugarFixture": [0: "RangeReplaceableCollection & MutableCollection"],
-            "GenericResult": [1: "Error"]
-        ]
-        if let known = knownConstraints[owner] {
-            let rendered = names.enumerated().map { index, name in
-                if let constraint = known[index], !constraint.isEmpty { return "\(name): \(constraint)" }
-                return name
-            }
-            return "<" + rendered.joined(separator: ", ") + ">"
-        }
+        let names = parameterNames()
         var parts = names
         for requirement in requirements {
             let parameter = normalize(requirement.parameter.swiftName.value, names: names)

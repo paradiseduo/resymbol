@@ -14,7 +14,8 @@ struct AssociatedTypeRecord {
     static func AT(_ binary: Data, offset: inout Int) -> AssociatedTypeRecord {
         let name = SwiftName.SN(binary, offset: offset, isMangledName: false, isClassName: false)
         offset += 4
-        let substitutedTypeName = SwiftName.SN(binary, offset: offset, isMangledName: false, isClassName: false)
+        let substitutedTypeName = SwiftName.SN(binary, offset: offset, isMangledName: true,
+                                               isClassName: false, maxBytes: 1024)
         offset += 4
         return AssociatedTypeRecord(name: name, substitutedTypeName: substitutedTypeName)
     }
@@ -54,12 +55,10 @@ struct SwiftAssocty {
               !proto.contains("variadic-marker"),
               !proto.contains("empty-list") else { return }
         var result = "extension \(conforming): \(proto) {\n"
-        let genericNames: [String] = conforming == "MemoryRepository" ? ["Element"] :
-            conforming == "FixtureService" ? ["Repository"] : []
         for item in associatedTypeRecords {
             let name = item.name.swiftName.value
             var type = fixMangledTypeName(item.substitutedTypeName.swiftName)
-            type = normalizeGenericPlaceholders(type, names: genericNames)
+            type = normalizeRecoveredSwiftType(type)
             guard !name.isEmpty,
                   !type.contains("Builtin.NativeObject"),
                   !type.contains("variadic-marker"),
@@ -68,6 +67,7 @@ struct SwiftAssocty {
             result += "    typealias \(name) = \(type)\n"
         }
         result += "}\n"
-        ConsoleIO.writeMessage(result)
+        SerializationOutput.emit(result, kind: .swiftExtension,
+                                 name: "\(conforming)+\(proto)")
     }
 }

@@ -23,12 +23,13 @@ struct SwiftStruct {
     
     func serialization() {
         guard type.hasUsableName else { return }
-        var result = "\(type.flags.kind.description) \(type.qualifiedName)"
-        let genericNames = genericSignature?.parameterNames(owner: type.name.swiftName.value,
-                                                            fields: type.fieldDescriptor.fieldRecords) ?? []
+        let qualifiedName = type.qualifiedName
+        var result = "\(type.flags.kind.description) \(qualifiedName)"
+        let genericNames = genericSignature?.parameterNames() ?? []
+        var resolvedFieldTypes = [String: String]()
+        var unresolvedFieldTypes = Set<String>()
         if let genericSignature {
-            result += genericSignature.declaration(owner: type.name.swiftName.value,
-                                                   fields: type.fieldDescriptor.fieldRecords)
+            result += genericSignature.declaration()
         }
         result += " {\n"
         for item in type.fieldDescriptor.fieldRecords {
@@ -36,16 +37,28 @@ struct SwiftStruct {
             let front = property.declaration
             let fieldName = property.name
             guard isUsableSwiftMemberName(fieldName) else { continue }
-            let qualifiedAccessorKey = "\(type.qualifiedName)|\(fieldName)"
+            let qualifiedAccessorKey = "\(qualifiedName)|\(fieldName)"
             let accessorName = fieldName.hasPrefix("_") ? String(fieldName.dropFirst()) : fieldName
-            let accessorType = [MachOData.shared.accessorTypes[qualifiedAccessorKey],
-                                MachOData.shared.accessorTypes["\(type.qualifiedName)|\(accessorName)"],
-                                MachOData.shared.accessorTypes[fieldName],
-                                MachOData.shared.accessorTypes[accessorName]]
-                .compactMap { $0 }
-                .first { !$0.isEmpty }
-            if let fieldType = resolvedSwiftFieldType(item, accessorType: accessorType,
-                                                      genericNames: genericNames) {
+            let accessorType = MachOData.shared.accessorTypes.firstNonEmpty(for: [
+                qualifiedAccessorKey, "\(qualifiedName)|\(accessorName)", fieldName, accessorName
+            ])
+            let cacheKey = item.mangledTypeName.swiftName.value + "|" + (accessorType ?? "")
+            let fieldType: String?
+            if let cached = resolvedFieldTypes[cacheKey] {
+                fieldType = cached
+            } else if unresolvedFieldTypes.contains(cacheKey) {
+                fieldType = nil
+            } else {
+                let resolved = resolvedSwiftFieldType(item, accessorType: accessorType,
+                                                       genericNames: genericNames,
+                                                       owner: qualifiedName, fieldName: fieldName)
+                if let resolved { resolvedFieldTypes[cacheKey] = resolved }
+                else { unresolvedFieldTypes.insert(cacheKey) }
+                fieldType = resolved
+            }
+            if let fieldType {
+                let normalizedFieldType = normalizeRecoveredSwiftType(fieldType)
+                let fieldType = normalizedFieldType.isEmpty ? fieldType : normalizedFieldType
                 if let wrapper = recoveredPropertyWrapper(item, fieldType: fieldType,
                                                           accessorType: accessorType) {
                     result += "    \(wrapper)\n"
@@ -56,7 +69,7 @@ struct SwiftStruct {
                 result += "    \(front) \(fieldName)\n"
             }
         }
-        let methods = MachOData.shared.swiftMethodNames(owner: type.qualifiedName)
+        let methods = MachOData.shared.swiftMethodNames(owner: qualifiedName)
         if !methods.isEmpty {
             result += "\n"
             for method in methods {
@@ -64,6 +77,6 @@ struct SwiftStruct {
             }
         }
         result += "}\n"
-        ConsoleIO.writeMessage(result)
+        SerializationOutput.emit(result, kind: .swiftStruct, name: qualifiedName)
     }
 }

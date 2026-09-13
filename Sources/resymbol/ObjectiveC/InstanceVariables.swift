@@ -58,7 +58,13 @@ struct InstanceVariable {
     }
     
     func serialization() -> String {
-        return "\t\(primitiveType(types.instanceVariableTypes.value)) \(name.instanceVariableName.value);"
+        let rawName = name.instanceVariableName.value
+        let lazyPrefix = "$__lazy_storage_$_"
+        if rawName.hasPrefix(lazyPrefix) {
+            let propertyName = String(rawName.dropFirst(lazyPrefix.count))
+            return "\tlazy \(primitiveType(types.instanceVariableTypes.value)) \(propertyName);"
+        }
+        return "\t\(primitiveType(types.instanceVariableTypes.value)) \(rawName);"
     }
 }
 

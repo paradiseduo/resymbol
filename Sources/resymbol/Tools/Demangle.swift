@@ -90,8 +90,28 @@ func getTypeFromMangledName(_ str: String) -> String {
     if str.hasSuffix("0x") {
         return str
     }
-    if (canDemangleFromRuntime(str)) {
-        return runtimeGetDemangledName(str)
+
+    // Swift metadata commonly stores type references without the `$` marker
+    // and may retain one ABI underscore (`_s...`). Normalize those spellings
+    // before asking swift_demangle; prepending `$s` to `_s...` would produce
+    // the invalid `$s_s...` form and leak the mangled bytes into output.
+    var normalized = str
+    if normalized.hasPrefix("_$s") {
+        normalized.removeFirst()
+    } else if normalized.hasPrefix("_s") {
+        normalized = "$" + String(normalized.dropFirst())
+    } else if normalized.hasPrefix("s") {
+        normalized = "$" + normalized
+    }
+    if let nominal = partialNominalMetadataTypeName(normalized) {
+        return nominal
+    }
+    if normalized.hasPrefix("$s"), let demangled = strictSwiftDemangle(normalized) {
+        return demangled
+    }
+
+    if canDemangleFromRuntime(normalized) {
+        return runtimeGetDemangledName(normalized)
     }
     //check is ascii string
     if (!str.isAsciiStr()) {
@@ -101,8 +121,8 @@ func getTypeFromMangledName(_ str: String) -> String {
     // Swift's Objective-C protocol/class references use So<length><name>C.
     // Some SDK/runtime combinations reject the `$sSo...` spelling; recover
     // the readable name directly instead of leaking the mangled token.
-    if str.hasPrefix("So"), str.hasSuffix("C") {
-        let body = String(str.dropFirst(2).dropLast())
+    if normalized.hasPrefix("So"), normalized.hasSuffix("C") {
+        let body = String(normalized.dropFirst(2).dropLast())
         var digits = ""
         for ch in body where ch.isNumber { digits.append(ch) }
         if let length = Int(digits), length > 0 {
@@ -115,9 +135,9 @@ func getTypeFromMangledName(_ str: String) -> String {
     // Never ask the Swift runtime to instantiate metadata from bytes read from
     // an arbitrary Mach-O. Invalid or context-dependent names can crash inside
     // swift_getTypeName. swift_demangle is a parser and safely reports failure.
-    let candidates = str.hasPrefix("$s") || str.hasPrefix("_T")
-        ? [str]
-        : ["$s" + str, str]
+    let candidates = normalized.hasPrefix("$s") || normalized.hasPrefix("_T")
+        ? [normalized]
+        : ["$s" + normalized, normalized]
     for candidate in candidates {
         let demangled = _stdlib_demangleName(candidate)
         if demangled != candidate {
@@ -126,6 +146,54 @@ func getTypeFromMangledName(_ str: String) -> String {
         }
     }
     return str
+}
+
+/// Decode partial nominal metadata references that the runtime demangler does
+/// not accept. Both module and type identifiers come from their ABI length
+/// prefixes; no framework or application type names are assumed.
+private func partialNominalMetadataTypeName(_ value: String) -> String? {
+    guard value.hasPrefix("$s") else { return nil }
+    let body = String(value.dropFirst(2))
+
+    func identifier(_ text: String, at start: String.Index)
+        -> (name: String, end: String.Index)? {
+        var cursor = start
+        while cursor < text.endIndex, text[cursor].isNumber {
+            cursor = text.index(after: cursor)
+        }
+        guard cursor > start, let length = Int(text[start..<cursor]), length > 0,
+              let end = text.index(cursor, offsetBy: length, limitedBy: text.endIndex),
+              text.distance(from: cursor, to: end) == length else { return nil }
+        return (String(text[cursor..<end]), end)
+    }
+
+    guard let module = identifier(body, at: body.startIndex), !module.name.isEmpty,
+          let type = identifier(body, at: module.end), type.end < body.endIndex,
+          body[type.end] == "C" || body[type.end] == "V" || body[type.end] == "O" else {
+        return nil
+    }
+    var cursor = body.index(after: type.end)
+    guard body[cursor...].hasPrefix("Mn") else { return nil }
+    cursor = body.index(cursor, offsetBy: 2)
+    var result = type.name
+    if body[cursor...].hasPrefix("Sg") {
+        result += "?"
+        cursor = body.index(cursor, offsetBy: 2)
+    }
+    guard cursor == body.endIndex else { return nil }
+    return result
+}
+
+/// Unlike `swift_demangle`, this helper distinguishes a successful demangle
+/// from the runtime's unchanged fallback string. The public wrapper strips the
+/// `$s` prefix for readability, so comparing its result with the input is not
+/// sufficient to detect failure.
+func strictSwiftDemangle(_ candidate: String) -> String? {
+    let raw = _stdlib_demangleName(candidate)
+    guard raw != candidate else { return nil }
+    return fixOptionalTypeName(raw
+        .replacingOccurrences(of: "$s", with: "")
+        .replacingOccurrences(of: "__C.", with: ""))
 }
 
 
@@ -148,6 +216,11 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
     if !dataStruct.value.contains("0x") {
         return dataStruct.value
     }
+    // Reuse one binary snapshot for the complete fixup walk. The old code
+    // fetched MachOData.shared.binary for every marker and range check,
+    // paying a concurrent-queue synchronization cost repeatedly per field.
+    let binary = MachOData.shared.binary
+    let resolver = MachOData.shared.addressResolver()
     let hexName: String = dataStruct.value.removingPrefix("0x")
     let data = hexName.hexData
     let startAddress = dataStruct.address.int16()
@@ -155,7 +228,10 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
     
     var mangledName: String = ""
     var i: Int = 0
-    let maxOutputLength = 256
+    // SwiftUI result-builder types can contain deeply nested generic
+    // arguments and routinely exceed 256 characters. Keep a generous output
+    // bound while the input byte buffer remains the authoritative loop limit.
+    let maxOutputLength = 2048
     
     while i < data.count, mangledName.utf8.count < maxOutputLength {
         let val = data[i]
@@ -166,9 +242,16 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             guard toIdx <= data.count else { return dataStruct.value }
             let subData = data[fromIdx..<toIdx]
             let fieldOffset = startAddress.addingReportingOverflow(fromIdx).overflow ? -1 : startAddress + fromIdx
-            let address = MachOData.shared.resolveRelativePointer(base: fieldOffset,
-                                                                    raw: subData.rawValueBig()) ?? -1
-            guard address >= 0, address < MachOData.shared.binary.count else {
+            let resolvedAddress: Int?
+            if let resolver {
+                resolvedAddress = resolver.resolveRelativePointer(fieldOffset: fieldOffset,
+                                                                  rawHex: subData.rawValueBig())
+            } else {
+                resolvedAddress = MachOData.shared.resolveRelativePointer(base: fieldOffset,
+                                                                           raw: subData.rawValueBig())
+            }
+            let address = resolvedAddress ?? -1
+            guard address >= 0, address < binary.count else {
                 i += 5
                 continue
             }
@@ -183,13 +266,13 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
                 result = s
             } else if let range = MachOData.shared.swiftTypeRefRange,
                       range.contains(address),
-                      address < MachOData.shared.binary.count {
-                result = DataStruct.textSwiftData(MachOData.shared.binary, offset: address,
+                      address < binary.count {
+                result = DataStruct.textSwiftData(binary, offset: address,
                                                   isMangledName: true, isClassName: false).value
             } else if let range = MachOData.shared.swiftReflectionStringRange,
                       range.contains(address),
-                      address < MachOData.shared.binary.count {
-                result = DataStruct.textData(MachOData.shared.binary, offset: address,
+                      address < binary.count {
+                result = DataStruct.textData(binary, offset: address,
                                               demangle: true).value
             }
             if (i == 0 && toIdx >= data.count) {
@@ -206,41 +289,95 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
             guard toIdx <= data.count else { return dataStruct.value }
             let subData = data[fromIdx..<toIdx]
             let fieldOffset = startAddress.addingReportingOverflow(fromIdx).overflow ? -1 : startAddress + fromIdx
-            let address = MachOData.shared.resolveRelativePointer(base: fieldOffset,
-                                                                    raw: subData.rawValueBig()) ?? -1
-            guard address >= 0, address <= MachOData.shared.binary.count - 4 else {
-                i = toIdx + 1
-                continue
+            // Chained-fixup imports retain their symbol name in the fixup
+            // slot. Resolve that name before interpreting the slot contents
+            // as another relative pointer; arm64e authenticated imports do
+            // not reliably decode as plain 32-bit offsets.
+            let pointerOffset: Int?
+            if let resolver {
+                pointerOffset = resolver.resolveRelativePointer(fieldOffset: fieldOffset,
+                                                                  rawHex: subData.rawValueBig())
+            } else {
+                pointerOffset = MachOData.shared.resolveRelativePointer(base: fieldOffset,
+                                                                          raw: subData.rawValueBig())
             }
-            let newDataStruct = DataStruct.data(MachOData.shared.binary, offset: address, length: 4)
-            let indirectTarget = MachOData.shared.resolveRelativePointer(base: address,
-                                                                           raw: newDataStruct.value) ?? -1
+            let boundName = pointerOffset.flatMap { boundSymbolName(atFileOffset: $0, resolver: resolver) }
+            let newDataStruct = pointerOffset.map { DataStruct.data(binary, offset: $0, length: 4) }
+            let resolvedIndirectTarget: Int?
+            if boundName != nil {
+                resolvedIndirectTarget = nil
+            } else if let pointerOffset {
+                // Marker 0x02 denotes an indirect reference. The slot is a
+                // pointer-sized value, commonly an arm64e-authenticated VM
+                // address. Resolve it before trying legacy 32-bit forms.
+                if let resolver, pointerOffset <= binary.count - 8 {
+                    let rawPointer = binary[pointerOffset..<pointerOffset + 8].enumerated()
+                        .reduce(UInt64(0)) { $0 | (UInt64($1.element) << UInt64($1.offset * 8)) }
+                    resolvedIndirectTarget = resolver.resolveAbsolutePointer(
+                        rawPointer, format: .arm64eAuthenticated)
+                        ?? resolver.resolveRelativePointer(
+                            fieldOffset: pointerOffset,
+                            raw: UInt32(newDataStruct?.value ?? "00000000", radix: 16) ?? 0)
+                } else {
+                    resolvedIndirectTarget = pointerOffset
+                }
+            } else {
+                resolvedIndirectTarget = nil
+            }
+            let indirectTarget = resolvedIndirectTarget ?? -1
             var result = ""
-            if let s = MachOData.shared.mangledNameMap[dataStruct.value] {
+            if let boundName {
+                // Chained imports may omit the ABI marker when spliced into a
+                // typeref; normalize the symbol prefix before demangling.
+                result = boundName.hasPrefix("_$s")
+                    ? "_" + String(boundName.dropFirst(2))
+                    : boundName.hasPrefix("$s")
+                        ? "_" + String(boundName.dropFirst(1))
+                        : boundName
+            } else if let s = MachOData.shared.mangledNameMap[dataStruct.value] {
+                result = s
+            } else if let s = MachOData.shared.objcClassMetadataNames[indirectTarget] {
+                // Hybrid Swift/ObjC metadata may expose the context
+                // descriptor directly. Prefer the runtime class identity over
+                // attempting to parse stripped descriptor name bytes.
+                result = s
+            } else if let descriptorName = indirectTarget >= 0
+                        ? swiftNominalDescriptorName(binary, offset: indirectTarget)
+                        : nil {
+                result = descriptorName
+            } else if let s = MachOData.shared.objcClasses[indirectTarget] {
+                // Indirect typerefs for Swift classes may point directly at
+                // an ObjC runtime class object. The class-list index provides
+                // its source-facing name without any business-type lookup.
                 result = s
             } else if let s = MachOData.shared.nominalOffsetMap[indirectTarget] {
                 result = s
             } else if let s = MachOData.shared.dylbMap[String(indirectTarget, radix: 16, uppercase: false)] {
                 result = s
-            } else if let s = MachOData.shared.nominalOffsetMap[newDataStruct.value.int16()] {
+            } else if let newDataStruct,
+                      let s = MachOData.shared.nominalOffsetMap[newDataStruct.value.int16()] {
                 result = s
-            } else if let s = MachOData.shared.dylbMap[String(newDataStruct.address.int16(), radix: 16, uppercase: false)] {
+            } else if let newDataStruct,
+                      let s = MachOData.shared.dylbMap[String(newDataStruct.address.int16(), radix: 16, uppercase: false)] {
                 result = s
-            } else if let s = MachOData.shared.swiftProtocols[newDataStruct.value.int16()] {
+            } else if let newDataStruct,
+                      let s = MachOData.shared.swiftProtocols[newDataStruct.value.int16()] {
                 result = s
             } else if let range = MachOData.shared.swiftTypeRefRange,
                       range.contains(indirectTarget),
-                      indirectTarget < MachOData.shared.binary.count {
-                result = DataStruct.textSwiftData(MachOData.shared.binary,
+                      indirectTarget < binary.count {
+                result = DataStruct.textSwiftData(binary,
                                                   offset: indirectTarget,
                                                   isMangledName: true, isClassName: false).value
             } else if let range = MachOData.shared.swiftReflectionStringRange,
                       range.contains(indirectTarget),
-                      indirectTarget < MachOData.shared.binary.count {
-                result = DataStruct.textData(MachOData.shared.binary, offset: indirectTarget,
+                      indirectTarget < binary.count {
+                result = DataStruct.textData(binary, offset: indirectTarget,
                                               demangle: true).value
             }
-            if (i == 0 && toIdx >= data.count) {
+            if boundName != nil {
+                mangledName = String((mangledName + result).prefix(maxOutputLength))
+            } else if (i == 0 && toIdx >= data.count) {
                 mangledName = String((mangledName + result).prefix(maxOutputLength))
             } else {
                 let fixName = makeDemangledTypeName(result, header: mangledName)
@@ -277,6 +414,33 @@ func fixMangledTypeName(_ dataStruct: DataStruct) -> String {
         }
     }
     return sanitizeRecoveredType(result)
+}
+
+/// Read a nominal type name from a descriptor reached through an indirect
+/// typeref. This also covers descriptors from imported Swift modules that are
+/// not present in this image's `__swift5_types` section.
+private func swiftNominalDescriptorName(_ binary: Data, offset: Int) -> String? {
+    guard offset >= 0, offset <= binary.count - 12 else { return nil }
+    let name = SwiftName.SN(binary, offset: offset + 8,
+                             isMangledName: false, isClassName: true).swiftName.value
+    guard isUsableSwiftNominalName(name) else { return nil }
+    let parent = SwiftParent.SP(binary, offset: offset + 4).swiftParent.value
+    if isUsableSwiftNominalName(parent) {
+        return "(parent).(name)"
+    }
+    return name
+}
+
+private func boundSymbolName(atFileOffset offset: Int,
+                             resolver: MachOAddressResolver?) -> String? {
+    guard let resolver,
+          let vmAddress = resolver.vmAddress(forFileOffset: offset),
+          let imageOffset = resolver.imageOffset(forVMAddress: vmAddress) else {
+        return nil
+    }
+    let key = String(imageOffset, radix: 16)
+    return MachOData.shared.boundSymbols[key]?.name
+        ?? MachOData.shared.dylbMap[key]
 }
 
 /// Reject values produced by unresolved relative pointers or by scanning

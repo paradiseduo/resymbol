@@ -72,7 +72,8 @@ struct ObjcClass {
             }
         }
         result += "@end\n"
-        ConsoleIO.writeMessage(result)
+        SerializationOutput.emit(result, kind: .objectiveCClass,
+                                 name: c.name.className.value)
     }
 }
 
@@ -107,4 +108,3 @@ struct ObjcClassRO {
         return ObjcClassRO(flags: flags, instanceStart: instanceStart, instanceSize: instanceSize, reserved: reserved, ivarlayout: ivarlayout, name: name, baseMethod: baseMethod, baseProtocol: baseProtocol, ivars: ivars, weakIvarLayout: weakIvarLayout, baseProperties: baseProperties)
     }
 }
-

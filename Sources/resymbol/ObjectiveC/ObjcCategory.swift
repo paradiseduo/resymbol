@@ -61,6 +61,9 @@ struct ObjcCategory {
             }
         }
         result += "@end\n"
-        ConsoleIO.writeMessage(result)
+        let outputName = externalClassName.isEmpty
+            ? name.className.value
+            : "\(externalClassName)+\(name.className.value)"
+        SerializationOutput.emit(result, kind: .objectiveCExtension, name: outputName)
     }
 }

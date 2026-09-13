@@ -45,6 +45,8 @@ struct SwiftBuiltin {
     }
     
     func serialization() {
-        ConsoleIO.writeMessage("builtin \(fixMangledTypeName(typeName.swiftName)) {\n\t\(alignmentAndFlags.alignment)\n\t\(alignmentAndFlags.isBitwiseTakable)\n\t\(stride.value.int16())\n\t\(numExtraInhabitants.value.int16())\n}\n")
+        SerializationOutput.emit("builtin \(fixMangledTypeName(typeName.swiftName)) {\n\t\(alignmentAndFlags.alignment)\n\t\(alignmentAndFlags.isBitwiseTakable)\n\t\(stride.value.int16())\n\t\(numExtraInhabitants.value.int16())\n}\n",
+                                 kind: .swiftBuiltin,
+                                 name: typeName.swiftName.value)
     }
 }

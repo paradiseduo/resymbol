@@ -78,6 +78,7 @@ struct ObjcProtocol {
             }
         }
         result += "@end\n"
-        ConsoleIO.writeMessage(result)
+        SerializationOutput.emit(result, kind: .objectiveCProtocol,
+                                 name: name.className.value)
     }
 }

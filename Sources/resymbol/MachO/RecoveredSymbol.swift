@@ -120,31 +120,70 @@ struct RecoveredSymbolPatchPlan: Equatable {
     let outputSize: Int
     let requiresDynamicSymbolTableRewrite: Bool
 
+    let originalSymbolRange: Range<Int>
+    let originalStringRange: Range<Int>
+    let symbolDelta: Int
+    let stringDelta: Int
+
     static func make(data: Data, file: MachOFile,
                      layout: RecoveredSymbolWriteLayout) -> RecoveredSymbolPatchPlan? {
         guard let symtab = file.firstCommand(ofKind: .symbolTable),
               let dynamic = file.firstCommand(ofKind: .dynamicSymbolTable),
               layout.entries.count <= Int(UInt32.max),
               layout.stringTable.count <= Int(UInt32.max) else { return nil }
-        let aligned = data.count.addingReportingOverflow(7)
-        guard !aligned.overflow else { return nil }
-        let alignedSymbols = aligned.partialValue & ~7
-        let stringOffset = alignedSymbols.addingReportingOverflow(layout.serializedNListData(
-            byteSwapped: file.isByteSwapped).count)
-        guard !stringOffset.overflow else { return nil }
-        let outputSize = stringOffset.partialValue.addingReportingOverflow(layout.stringTable.count)
-        guard !outputSize.overflow else { return nil }
-        guard alignedSymbols <= Int(UInt32.max),
-              stringOffset.partialValue <= Int(UInt32.max) else { return nil }
+        guard case .symbolTable(let rawSymtab) = symtab.payload else { return nil }
+        let nlistSize = MemoryLayout<nlist_64>.size
+        let oldSymEnd = Int(rawSymtab.symoff) + Int(rawSymtab.nsyms) * nlistSize
+        let oldStrEnd = Int(rawSymtab.stroff) + Int(rawSymtab.strsize)
+        guard oldSymEnd <= data.count, oldStrEnd <= data.count else { return nil }
+        let newSymEnd = Int(rawSymtab.symoff) + layout.entries.count * nlistSize
+        let firstDelta = newSymEnd - oldSymEnd
+        let shiftedStringOffset = Int(rawSymtab.stroff) + firstDelta
+        let stringEnd = shiftedStringOffset.addingReportingOverflow(layout.stringTable.count)
+        guard !stringEnd.overflow else { return nil }
+        guard rawSymtab.symoff <= UInt32.max,
+              shiftedStringOffset <= Int(UInt32.max) else { return nil }
+        let secondDelta = layout.stringTable.count - Int(rawSymtab.strsize)
+        let afterSymbols = data.count.addingReportingOverflow(firstDelta)
+        guard !afterSymbols.overflow else { return nil }
+        let finalSize = afterSymbols.partialValue.addingReportingOverflow(secondDelta)
+        guard !finalSize.overflow else { return nil }
+        // removeCodeSignature aligns the relocated code-signature blob before
+        // clearing it. That insertion is at the end of the linkedit payload
+        // in supported images, but it still contributes to the output size.
+        var signaturePadding = 0
+        for command in file.loadCommands where command.command == UInt32(truncatingIfNeeded: LC_CODE_SIGNATURE) {
+            guard command.fileOffset >= 0, command.fileOffset + 16 <= data.count else { continue }
+            var oldOffset: UInt32 = 0
+            _ = withUnsafeMutableBytes(of: &oldOffset) { bytes in
+                data.copyBytes(to: bytes, from: (command.fileOffset + 8)..<(command.fileOffset + 12))
+            }
+            if file.isByteSwapped { oldOffset = oldOffset.byteSwapped }
+            let mappedOffset: Int
+            if Int(oldOffset) >= oldStrEnd {
+                mappedOffset = Int(oldOffset) + firstDelta + secondDelta
+            } else if Int(oldOffset) >= oldSymEnd {
+                mappedOffset = Int(oldOffset) + firstDelta
+            } else {
+                mappedOffset = Int(oldOffset)
+            }
+            signaturePadding = max(signaturePadding, (16 - (mappedOffset & 15)) & 15)
+        }
+        let sizedFinal = finalSize.partialValue.addingReportingOverflow(signaturePadding)
+        guard !sizedFinal.overflow, sizedFinal.partialValue <= Int(UInt32.max) else { return nil }
         return RecoveredSymbolPatchPlan(
             symbolTableCommandOffset: symtab.fileOffset,
             dynamicSymbolTableCommandOffset: dynamic.fileOffset,
-            symbolTableFileOffset: alignedSymbols,
-            stringTableFileOffset: stringOffset.partialValue,
+            symbolTableFileOffset: Int(rawSymtab.symoff),
+            stringTableFileOffset: shiftedStringOffset,
             symbolCount: layout.entries.count,
             stringTableSize: layout.stringTable.count,
-            outputSize: outputSize.partialValue,
-            requiresDynamicSymbolTableRewrite: layout.requiresDynamicSymbolTableRewrite)
+            outputSize: sizedFinal.partialValue,
+            requiresDynamicSymbolTableRewrite: layout.requiresDynamicSymbolTableRewrite,
+            originalSymbolRange: Int(rawSymtab.symoff)..<oldSymEnd,
+            originalStringRange: Int(rawSymtab.stroff)..<oldStrEnd,
+            symbolDelta: firstDelta,
+            stringDelta: secondDelta)
     }
 }
 
@@ -153,6 +192,8 @@ enum RecoveredSymbolWriterError: Error {
     case unsupportedDynamicIndexLayout
     case invalidLayout
     case validationFailed
+    case machOValidationFailed
+    case dynamicSymbolValidationFailed
 }
 
 enum RecoveredSymbolWriter {
@@ -170,38 +211,99 @@ enum RecoveredSymbolWriter {
             throw RecoveredSymbolWriterError.missingCommands
         }
         let nlistData = layout.serializedNListData(byteSwapped: file.isByteSwapped)
-        guard nlistData.count == layout.entries.count * 16,
-              patch.outputSize >= patch.stringTableFileOffset + layout.stringTable.count else {
-            throw RecoveredSymbolWriterError.invalidLayout
-        }
-        guard patch.outputSize >= data.count else {
+        guard nlistData.count == layout.entries.count * MemoryLayout<nlist_64>.size else {
             throw RecoveredSymbolWriterError.invalidLayout
         }
         var output = data
-        output.reserveCapacity(patch.outputSize)
-        if output.count < patch.outputSize {
-            output.append(contentsOf: repeatElement(UInt8(0),
-                                                     count: patch.outputSize - output.count))
+        output.replaceSubrange(patch.originalSymbolRange, with: nlistData)
+        let stringShift = nlistData.count - patch.originalSymbolRange.count
+        let shiftedOriginalString = (patch.originalStringRange.lowerBound + stringShift)..<(patch.originalStringRange.upperBound + stringShift)
+        guard shiftedOriginalString.lowerBound >= 0,
+              shiftedOriginalString.upperBound <= output.count else {
+            throw RecoveredSymbolWriterError.invalidLayout
         }
-        output.replaceSubrange(patch.symbolTableFileOffset..<(patch.symbolTableFileOffset + nlistData.count),
-                               with: nlistData)
-        output.replaceSubrange(patch.stringTableFileOffset..<(patch.stringTableFileOffset + layout.stringTable.count),
-                               with: layout.stringTable)
+        output.replaceSubrange(shiftedOriginalString, with: layout.stringTable)
+        try patchAllLinkeditOffsets(&output, file: file, patch: patch,
+                                    swapped: file.isByteSwapped)
         try patchUInt32(&output, at: symtab.fileOffset + 8, value: UInt32(patch.symbolTableFileOffset), swapped: file.isByteSwapped)
         try patchUInt32(&output, at: symtab.fileOffset + 12, value: UInt32(patch.symbolCount), swapped: file.isByteSwapped)
         try patchUInt32(&output, at: symtab.fileOffset + 16, value: UInt32(patch.stringTableFileOffset), swapped: file.isByteSwapped)
         try patchUInt32(&output, at: symtab.fileOffset + 20, value: UInt32(patch.stringTableSize), swapped: file.isByteSwapped)
         try patchDynamicIndexes(&output, command: dynamicCommand, symbols: dynamicSymbols,
-                                file: file, layout: layout, swapped: file.isByteSwapped)
+                                file: file, layout: layout, patch: patch, swapped: file.isByteSwapped)
+        removeCodeSignature(&output, file: file, patch: patch, swapped: file.isByteSwapped)
         try patchLinkeditSegment(&output, file: file)
         try validate(output, expected: layout)
         return output
+    }
+
+    /// Every linkedit payload after the expanded nlist/string ranges moves by
+    /// the corresponding replacement delta. Keep load commands consistent so
+    /// codesign_allocate and dyld see the same layout as the bytes on disk.
+    private static func patchAllLinkeditOffsets(_ data: inout Data, file: MachOFile,
+                                                patch: RecoveredSymbolPatchPlan,
+                                                swapped: Bool) throws {
+        guard case .symbolTable = file.firstCommand(ofKind: .symbolTable)?.payload else { return }
+        let symbolEnd = patch.originalSymbolRange.upperBound
+        let stringEnd = patch.originalStringRange.upperBound
+        func mapped(_ offset: UInt32) -> UInt32 {
+            var value = Int(offset)
+            if value >= stringEnd { value += patch.symbolDelta + patch.stringDelta }
+            else if value >= symbolEnd { value += patch.symbolDelta }
+            return UInt32(clamping: max(0, value))
+        }
+        func patchOffset(_ commandOffset: Int, _ fieldOffset: Int, _ value: UInt32) throws {
+            try patchUInt32(&data, at: commandOffset + fieldOffset,
+                            value: mapped(value), swapped: swapped)
+        }
+        for command in file.loadCommands {
+            if command.command == UInt32(truncatingIfNeeded: LC_CODE_SIGNATURE) {
+                // LC_CODE_SIGNATURE is not decoded into a payload by older
+                // Mach-O model versions. Read its original fields directly.
+                let oldOffset = readRawUInt32(data, at: command.fileOffset + 8, swapped: swapped)
+                if oldOffset != 0 { try patchOffset(command.fileOffset, 8, oldOffset) }
+                continue
+            }
+            switch command.payload {
+            case .dynamicSymbolTable(let value):
+                let fields: [(Int, UInt32)] = [(32, value.tocoff), (40, value.modtaboff),
+                                                (48, value.extrefsymoff), (56, value.indirectsymoff),
+                                                (64, value.extreloff), (72, value.locreloff)]
+                for (field, value) in fields where value != 0 { try patchOffset(command.fileOffset, field, value) }
+            case .dyldInfo(let value):
+                let fields: [(Int, UInt32)] = [(8, value.rebase_off), (16, value.bind_off),
+                                                (24, value.weak_bind_off), (32, value.lazy_bind_off),
+                                                (40, value.export_off)]
+                for (field, value) in fields where value != 0 { try patchOffset(command.fileOffset, field, value) }
+            case .linkeditData(let value):
+                if value.dataoff != 0 { try patchOffset(command.fileOffset, 8, value.dataoff) }
+            case .functionStarts(let value):
+                if value.data.offset != 0 { try patchOffset(command.fileOffset, 8, value.data.offset) }
+            case .dataInCode(let value):
+                if value.data.offset != 0 { try patchOffset(command.fileOffset, 8, value.data.offset) }
+            case .twoLevelHints(let value):
+                if value.data.offset != 0 { try patchOffset(command.fileOffset, 8, value.data.offset) }
+            default: break
+            }
+        }
+        // Section relocation offsets are embedded in LC_SEGMENT_64 section records.
+        for command in file.commands(ofKind: .segment64) {
+            guard case .segment64(let segment) = command.payload else { continue }
+            var cursor = command.fileOffset + MemoryLayout<segment_command_64>.size
+            for section in segment.sections {
+                if section.relocationOffset != 0 {
+                    try patchUInt32(&data, at: cursor + 56, value: mapped(section.relocationOffset), swapped: swapped)
+                }
+                cursor += MemoryLayout<section_64>.size
+            }
+        }
     }
 
     private static func patchDynamicIndexes(_ data: inout Data, command: MachOLoadCommand,
                                             symbols: MachODynamicSymbolTableModel,
                                             file: MachOFile,
                                             layout: RecoveredSymbolWriteLayout,
+                                            patch: RecoveredSymbolPatchPlan,
                                             swapped: Bool) throws {
         var map = [Int: Int]()
         for (newIndex, entry) in layout.entries.enumerated() {
@@ -218,6 +320,15 @@ enum RecoveredSymbolWriter {
               symbols.references.count == Int(dynamic.nextrefsyms),
               layout.moduleNameOffsets.count == symbols.modules.count else {
             throw RecoveredSymbolWriterError.invalidLayout
+        }
+        func mapped(_ offset: UInt32) -> Int {
+            var value = Int(offset)
+            if value >= patch.originalStringRange.upperBound {
+                value += patch.symbolDelta + patch.stringDelta
+            } else if value >= patch.originalSymbolRange.upperBound {
+                value += patch.symbolDelta
+            }
+            return value
         }
 
         try patchUInt32(&data, at: command.fileOffset + 8,
@@ -242,21 +353,21 @@ enum RecoveredSymbolWriter {
                 }
                 raw = try checkedUInt32(new)
             }
-            try patchUInt32(&data, at: Int(dynamic.indirectsymoff) + item.tableIndex * 4,
+            try patchUInt32(&data, at: mapped(dynamic.indirectsymoff) + item.tableIndex * 4,
                             value: raw, swapped: swapped)
         }
 
         for (index, item) in symbols.tableOfContents.enumerated() {
-            guard let mapped = map[Int(item.symbolIndex)] else {
+            guard let newIndex = map[Int(item.symbolIndex)] else {
                 throw RecoveredSymbolWriterError.unsupportedDynamicIndexLayout
             }
-            try patchUInt32(&data, at: Int(dynamic.tocoff) + index * 8,
-                            value: checkedUInt32(mapped), swapped: swapped)
+            try patchUInt32(&data, at: mapped(dynamic.tocoff) + index * 8,
+                            value: checkedUInt32(newIndex), swapped: swapped)
         }
 
         let moduleStride = MemoryLayout<dylib_module_64>.size
         for (index, module) in symbols.modules.enumerated() {
-            let offset = Int(dynamic.modtaboff) + index * moduleStride
+            let offset = mapped(dynamic.modtaboff) + index * moduleStride
             try patchUInt32(&data, at: offset, value: layout.moduleNameOffsets[index], swapped: swapped)
             if !module.externalDefinedRange.isEmpty {
                 let range = try remappedContiguousRange(module.externalDefinedRange, using: map)
@@ -271,19 +382,19 @@ enum RecoveredSymbolWriter {
         }
 
         for (index, reference) in symbols.references.enumerated() {
-            guard let mapped = map[Int(reference.symbolIndex)], mapped < 0x0100_0000 else {
+            guard let newIndex = map[Int(reference.symbolIndex)], newIndex < 0x0100_0000 else {
                 throw RecoveredSymbolWriterError.unsupportedDynamicIndexLayout
             }
-            let raw = UInt32(reference.flags) << 24 | UInt32(mapped)
-            try patchUInt32(&data, at: Int(dynamic.extrefsymoff) + index * 4,
+            let raw = UInt32(reference.flags) << 24 | UInt32(newIndex)
+            try patchUInt32(&data, at: mapped(dynamic.extrefsymoff) + index * 4,
                             value: raw, swapped: swapped)
         }
 
         var relocationOffsets = Set<Int>()
-        addRelocationOffsets(&relocationOffsets, start: dynamic.extreloff, count: dynamic.nextrel)
-        addRelocationOffsets(&relocationOffsets, start: dynamic.locreloff, count: dynamic.nlocrel)
+        addRelocationOffsets(&relocationOffsets, start: UInt32(mapped(dynamic.extreloff)), count: dynamic.nextrel)
+        addRelocationOffsets(&relocationOffsets, start: UInt32(mapped(dynamic.locreloff)), count: dynamic.nlocrel)
         for section in file.sections {
-            addRelocationOffsets(&relocationOffsets, start: section.relocationOffset,
+            addRelocationOffsets(&relocationOffsets, start: UInt32(mapped(section.relocationOffset)),
                                  count: section.relocationCount)
         }
         for offset in relocationOffsets.sorted() {
@@ -310,16 +421,70 @@ enum RecoveredSymbolWriter {
                         value: fileSize, swapped: file.isByteSwapped)
     }
 
+    /// A rebuilt symbol table cannot retain the old code signature. Clear the
+    /// LC_CODE_SIGNATURE payload so consumers do not attempt to validate stale
+    /// offsets or hashes. The old blob remains unreachable as padding.
+    private static func removeCodeSignature(_ data: inout Data, file: MachOFile,
+                                            patch: RecoveredSymbolPatchPlan,
+                                            swapped: Bool) {
+        for command in file.loadCommands where command.command == UInt32(truncatingIfNeeded: LC_CODE_SIGNATURE) {
+            guard command.commandSize >= MemoryLayout<linkedit_data_command>.size,
+                  command.fileOffset >= 0,
+                  command.fileOffset + 16 <= data.count else { continue }
+            let oldOffset: UInt32 = readRawUInt32(data, at: command.fileOffset + 8, swapped: swapped)
+            let oldSize: UInt32 = readRawUInt32(data, at: command.fileOffset + 12, swapped: swapped)
+            // patchAllLinkeditOffsets has already rewritten this command to
+            // the post-insertion offset, so do not apply the delta twice.
+            let shiftedOffset = Int(oldOffset)
+            guard shiftedOffset >= 0, shiftedOffset <= data.count,
+                  Int(oldSize) <= data.count - shiftedOffset else { continue }
+            let alignedOffset = (shiftedOffset + 15) & ~15
+            if alignedOffset > shiftedOffset {
+                data.replaceSubrange(shiftedOffset..<shiftedOffset,
+                                     with: repeatElement(UInt8(0), count: alignedOffset - shiftedOffset))
+            }
+            let finalOffset = alignedOffset
+            data.replaceSubrange(finalOffset..<(finalOffset + Int(oldSize)),
+                                 with: repeatElement(UInt8(0), count: Int(oldSize)))
+            var encodedOffset = UInt32(finalOffset)
+            var encodedSize = oldSize
+            if swapped { encodedOffset = encodedOffset.byteSwapped; encodedSize = encodedSize.byteSwapped }
+            withUnsafeBytes(of: &encodedOffset) { bytes in
+                data.replaceSubrange((command.fileOffset + 8)..<(command.fileOffset + 12), with: bytes)
+            }
+            withUnsafeBytes(of: &encodedSize) { bytes in
+                data.replaceSubrange((command.fileOffset + 12)..<(command.fileOffset + 16), with: bytes)
+            }
+        }
+    }
+
+    private static func readRawUInt32(_ data: Data, at offset: Int, swapped: Bool) -> UInt32 {
+        guard offset >= 0, offset + 4 <= data.count else { return 0 }
+        var value: UInt32 = 0
+        _ = withUnsafeMutableBytes(of: &value) { bytes in
+            data.copyBytes(to: bytes, from: offset..<(offset + 4))
+        }
+        return swapped ? value.byteSwapped : value
+    }
+
     private static func validate(_ data: Data, expected layout: RecoveredSymbolWriteLayout) throws {
-        guard let file = MachOFile.parse(data),
-              let parsed = DynamicSymbolModelParser.parse(data, machOFile: file),
-              parsed.symbols.count == layout.entries.count,
-              parsed.localRange == layout.localRange,
+        guard let file = MachOFile.parse(data) else {
+            throw RecoveredSymbolWriterError.machOValidationFailed
+        }
+        guard let parsed = DynamicSymbolModelParser.parse(data, machOFile: file) else {
+            throw RecoveredSymbolWriterError.dynamicSymbolValidationFailed
+        }
+        guard parsed.symbols.count == layout.entries.count else {
+            throw RecoveredSymbolWriterError.validationFailed
+        }
+        guard parsed.localRange == layout.localRange,
               parsed.externalDefinedRange == layout.externalDefinedRange,
               parsed.undefinedRange == layout.undefinedRange else {
             throw RecoveredSymbolWriterError.validationFailed
         }
-        for (record, entry) in zip(parsed.symbols, layout.entries) {
+        for pair in zip(parsed.symbols, layout.entries) {
+            let record = pair.0
+            let entry = pair.1
             guard record.name == entry.name, record.rawType == entry.type,
                   record.sectionIndex == entry.sectionIndex,
                   record.descriptor == entry.descriptor, record.value == entry.value else {
@@ -414,6 +579,7 @@ enum RecoveredSymbolInventory {
         var candidates = [Key: RecoveredSymbolCandidate]()
 
         if let dynamicSymbols {
+            let start = DispatchTime.now().uptimeNanoseconds
             for symbol in dynamicSymbols.symbols
                 where symbol.value != 0 && !symbol.name.isEmpty && symbol.kind != .indirect {
                 merge(RecoveredSymbolCandidate(address: symbol.value,
@@ -423,10 +589,13 @@ enum RecoveredSymbolInventory {
                                                isExternal: symbol.isExternal),
                       into: &candidates)
             }
+            PerformanceProfile.report("candidate-existing-symbols", start: start,
+                                      count: dynamicSymbols.symbols.count)
         }
 
         if let command = file.firstCommand(ofKind: .exportsTrie),
            case .linkeditData(let payload) = command.payload {
+            let start = DispatchTime.now().uptimeNanoseconds
             for item in ExportTrie.parse(data, offset: Int(payload.dataoff), size: Int(payload.datasize)) {
                 guard let imageAddress = item.address, !item.name.isEmpty else { continue }
                 let address = file.preferredLoadAddress.addingReportingOverflow(imageAddress)
@@ -438,10 +607,14 @@ enum RecoveredSymbolInventory {
                                                isExternal: true),
                       into: &candidates)
             }
+            PerformanceProfile.report("candidate-export-trie", start: start, count: candidates.count)
         }
 
         if includeMetadata {
-            for candidate in RecoveredMetadataSymbolScanner.objectiveCCandidates(data: data, file: file) {
+            let metadata = PerformanceProfile.measure("candidate-objc-metadata") {
+                RecoveredMetadataSymbolScanner.objectiveCCandidates(data: data, file: file)
+            }
+            for candidate in metadata {
                 merge(candidate, into: &candidates)
             }
         }
@@ -502,15 +675,19 @@ enum RecoveredSymbolInventory {
                             dynamicSymbols: MachODynamicSymbolTableModel?,
                             externalCandidates: [RecoveredSymbolCandidate] = []) -> RecoveredSymbolWriteLayout? {
         guard let dynamicSymbols else { return nil }
-        var newCandidates = newExportCandidates(data: data, file: file,
-                                                dynamicSymbols: dynamicSymbols)
+        var newCandidates = PerformanceProfile.measure("layout-export-candidates") {
+            newExportCandidates(data: data, file: file, dynamicSymbols: dynamicSymbols)
+        }
         let existing = { (candidate: RecoveredSymbolCandidate) -> Bool in
             (dynamicSymbols.symbolsByName[candidate.name] ?? []).contains {
                 dynamicSymbols.symbols[$0].value == candidate.address
             }
         }
         var metadataKeys = Set(newCandidates.map { Key(address: $0.address, name: $0.name) })
-        for candidate in RecoveredMetadataSymbolScanner.objectiveCCandidates(data: data, file: file)
+        let metadataCandidates = PerformanceProfile.measure("layout-objc-metadata") {
+            RecoveredMetadataSymbolScanner.objectiveCCandidates(data: data, file: file)
+        }
+        for candidate in metadataCandidates
             where !existing(candidate) && metadataKeys.insert(Key(address: candidate.address,
                                                                     name: candidate.name)).inserted {
             newCandidates.append(candidate)

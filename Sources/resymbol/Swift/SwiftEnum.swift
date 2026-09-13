@@ -42,11 +42,11 @@ struct SwiftEnum {
     func serialization() {
         guard type.hasUsableName else { return }
         var result = "\(type.flags.kind.description) \(type.qualifiedName)"
-        let genericNames = genericSignature?.parameterNames(owner: type.name.swiftName.value,
-                                                            fields: type.fieldDescriptor.fieldRecords) ?? []
+        let genericNames = genericSignature?.parameterNames() ?? []
+        var resolvedFieldTypes = [String: String]()
+        var unresolvedFieldTypes = Set<String>()
         if let genericSignature {
-            result += genericSignature.declaration(owner: type.name.swiftName.value,
-                                                   fields: type.fieldDescriptor.fieldRecords)
+            result += genericSignature.declaration()
         }
         result += " {\n"
         let records: ArraySlice<FieldRecord>
@@ -59,7 +59,22 @@ struct SwiftEnum {
             let name = item.fieldName.swiftName.value
             guard isUsableSwiftMemberName(name) else { continue }
             let indirect = item.flags.isIndirectCase ? "indirect " : ""
-            if let type = resolvedSwiftFieldType(item, genericNames: genericNames) {
+            let cacheKey = item.mangledTypeName.swiftName.value
+            let fieldType: String?
+            if let cached = resolvedFieldTypes[cacheKey] {
+                fieldType = cached
+            } else if unresolvedFieldTypes.contains(cacheKey) {
+                fieldType = nil
+            } else {
+                let resolved = resolvedSwiftFieldType(item, genericNames: genericNames,
+                                                      owner: type.qualifiedName, fieldName: name)
+                if let resolved { resolvedFieldTypes[cacheKey] = resolved }
+                else { unresolvedFieldTypes.insert(cacheKey) }
+                fieldType = resolved
+            }
+            if let type = fieldType {
+                let normalizedType = normalizeRecoveredSwiftType(type)
+                let type = normalizedType.isEmpty ? type : normalizedType
                 // Associated values are function-like in Swift source. Keep
                 // an already-tupled payload intact instead of producing
                 // invalid `case name: Type` declarations.
@@ -75,6 +90,6 @@ struct SwiftEnum {
             }
         }
         result += "}\n"
-        ConsoleIO.writeMessage(result)
+        SerializationOutput.emit(result, kind: .swiftEnum, name: type.qualifiedName)
     }
 }

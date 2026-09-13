@@ -67,7 +67,8 @@ struct DataStruct {
         return DataStruct(address: offset.string16(), value: None)
     }
     
-    static func textSwiftData(_ binary: Data, offset: Int, isMangledName: Bool, isClassName: Bool) -> DataStruct {
+    static func textSwiftData(_ binary: Data, offset: Int, isMangledName: Bool,
+                              isClassName: Bool, maxBytes: Int = 256) -> DataStruct {
         // 如果上来就是空的，说明没有这个东西
         if offset < 0 || offset >= binary.count || binary[offset] == 0 {
             return DataStruct(address: offset.string16(), value: None)
@@ -75,18 +76,25 @@ struct DataStruct {
         var start = offset
         var strData = Data()
         var scanned = 0
-        while start < binary.count, scanned < 256 {
+        while start < binary.count, scanned < maxBytes {
             let item = binary[start]
-//            let itemNext = binary[start+1]
-//            if isMangledName && strData.first == 0x2 {
-//                if item == 0 && itemNext == 0 {
-//                    return read(strData: strData, offset: offset, isMangledName: isMangledName, isClassName: isClassName)
-//                }
-//            } else {
-                if item == 0 {
-                    return read(strData: strData, offset: offset, isMangledName: isMangledName, isClassName: isClassName)
+            // Swift reflection typerefs embed 32-bit relative symbolic
+            // references after 0x01/0x02 markers. A zero byte inside that
+            // reference is data, not the end of the typeref string.
+            if isMangledName && (item == 0x01 || item == 0x02) {
+                guard binary.count - start >= 5, scanned <= maxBytes - 5 else {
+                    return read(strData: strData, offset: offset,
+                                isMangledName: isMangledName, isClassName: isClassName)
                 }
-//            }
+                strData.append(contentsOf: binary[start..<(start + 5)])
+                start += 5
+                scanned += 5
+                continue
+            }
+            if item == 0 {
+                return read(strData: strData, offset: offset,
+                            isMangledName: isMangledName, isClassName: isClassName)
+            }
             strData.append(item)
             start += 1
             scanned += 1
